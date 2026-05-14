@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: url-short
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:urlshort}
+    password: ${SPRING_DATASOURCE_PASSWORD:urlshort}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    open-in-view: false
+
+server:
+  port: 8080
+
+app:
+  base-url: ${APP_BASE_URL:http://localhost:8080}
+  snowflake:
+    datacenter-id: ${SNOWFLAKE_DATACENTER_ID:0}
+    worker-id: ${SNOWFLAKE_WORKER_ID:0}
+  url:
+    ttl-days: ${APP_URL_TTL_DAYS:7}
+    cleanup-cron: "${APP_URL_CLEANUP_CRON:0 0 * * * *}"
+
+logging:
+  level:
+    org.hibernate.SQL: debug

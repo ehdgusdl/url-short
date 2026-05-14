@@ -1,0 +1,27 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Build outputs
+bin/
+
+# Spring Boot
+HELP.md
+
+/DS_Store
+
+# claude
+claude.md
+.omc
