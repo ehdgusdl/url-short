@@ -22,6 +22,8 @@ docker compose up --build
 
 앱이 정상 기동되면 `http://localhost:8080` 에서 서비스를 이용할 수 있습니다.
 
+Swagger UI: http://localhost:8080/swagger-ui.html
+
 ## API 사용 예
 
 ### 1) 단축 URL 생성
