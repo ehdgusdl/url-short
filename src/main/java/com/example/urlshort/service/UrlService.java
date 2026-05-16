@@ -35,7 +35,12 @@ public class UrlService {
             String shortCode = generator.generate(Base62Generator.DEFAULT_LENGTH);
             if (!repository.existsByShortCode(shortCode)) {
                 long id = snowflake.nextId();
-                return repository.save(UrlMapping.of(id, shortCode, originalUrl, expiresAt));
+                return repository.save(UrlMapping.builder()
+                        .id(id)
+                        .shortCode(shortCode)
+                        .originalUrl(originalUrl)
+                        .expiresAt(expiresAt)
+                        .build());
             }
         }
         throw new IllegalStateException("failed to generate unique short code");

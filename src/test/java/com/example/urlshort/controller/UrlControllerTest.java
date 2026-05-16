@@ -34,8 +34,12 @@ class UrlControllerTest {
     @Test
     void create_returns_201_with_short_url() throws Exception {
         when(urlService.create(eq("https://example.com/long")))
-                .thenReturn(UrlMapping.of(1L, "aB3xK9p", "https://example.com/long",
-                        java.time.Instant.now().plus(7, java.time.temporal.ChronoUnit.DAYS)));
+                .thenReturn(UrlMapping.builder()
+                        .id(1L)
+                        .shortCode("aB3xK9p")
+                        .originalUrl("https://example.com/long")
+                        .expiresAt(java.time.Instant.now().plus(7, java.time.temporal.ChronoUnit.DAYS))
+                        .build());
 
         mockMvc.perform(post("/api/urls")
                         .contentType(MediaType.APPLICATION_JSON)

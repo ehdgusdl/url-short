@@ -27,8 +27,12 @@ class RedirectControllerTest {
 
     @Test
     void redirect_returns_302_with_location_when_found() throws Exception {
-        UrlMapping mapping = UrlMapping.of(1L, "aB3xK9p", "https://example.com/long",
-                Instant.now().plus(7, ChronoUnit.DAYS));
+        UrlMapping mapping = UrlMapping.builder()
+                .id(1L)
+                .shortCode("aB3xK9p")
+                .originalUrl("https://example.com/long")
+                .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
         when(urlService.find("aB3xK9p")).thenReturn(Optional.of(mapping));
 
         mockMvc.perform(get("/aB3xK9p"))
@@ -46,8 +50,12 @@ class RedirectControllerTest {
 
     @Test
     void redirect_returns_410_when_expired() throws Exception {
-        UrlMapping expired = UrlMapping.of(2L, "expiredX", "https://example.com/old",
-                Instant.now().minus(1, ChronoUnit.DAYS));
+        UrlMapping expired = UrlMapping.builder()
+                .id(2L)
+                .shortCode("expiredX")
+                .originalUrl("https://example.com/old")
+                .expiresAt(Instant.now().minus(1, ChronoUnit.DAYS))
+                .build();
         when(urlService.find("expiredX")).thenReturn(Optional.of(expired));
 
         mockMvc.perform(get("/expiredX"))

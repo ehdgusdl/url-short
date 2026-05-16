@@ -5,10 +5,19 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
 @Entity
+@Getter
+@Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Table(name = "url_mapping")
 public class UrlMapping {
 
@@ -27,40 +36,8 @@ public class UrlMapping {
     @Column(nullable = false)
     private Instant expiresAt;
 
-    protected UrlMapping() {
-    }
-
     @PrePersist
     void prePersist() {
         this.createdAt = Instant.now();
-    }
-
-    public static UrlMapping of(Long id, String shortCode, String originalUrl, Instant expiresAt) {
-        UrlMapping mapping = new UrlMapping();
-        mapping.id = id;
-        mapping.shortCode = shortCode;
-        mapping.originalUrl = originalUrl;
-        mapping.expiresAt = expiresAt;
-        return mapping;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public String getShortCode() {
-        return shortCode;
-    }
-
-    public String getOriginalUrl() {
-        return originalUrl;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getExpiresAt() {
-        return expiresAt;
     }
 }

@@ -75,9 +75,12 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
 
     @Test
     void get_expired_shortcode_returns_410() {
-        UrlMapping expired = UrlMapping.of(999999999999L, "expiredX",
-                "https://example.com/expired",
-                Instant.now().minus(1, ChronoUnit.DAYS));
+        UrlMapping expired = UrlMapping.builder()
+                .id(999999999999L)
+                .shortCode("expiredX")
+                .originalUrl("https://example.com/expired")
+                .expiresAt(Instant.now().minus(1, ChronoUnit.DAYS))
+                .build();
         repository.save(expired);
 
         ResponseEntity<Void> response = restTemplate.getForEntity("/expiredX", Void.class);

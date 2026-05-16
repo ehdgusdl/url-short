@@ -110,8 +110,12 @@ class UrlServiceTest {
     @Test
     @DisplayName("find_returns_mapping_when_present: shortCode에 해당하는 UrlMapping 반환")
     void find_returns_mapping_when_present() {
-        UrlMapping mapping = UrlMapping.of(1L, "abc", "https://x.com",
-                Instant.now().plus(7, ChronoUnit.DAYS));
+        UrlMapping mapping = UrlMapping.builder()
+                .id(1L)
+                .shortCode("abc")
+                .originalUrl("https://x.com")
+                .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
+                .build();
         when(repository.findByShortCode("abc")).thenReturn(Optional.of(mapping));
 
         Optional<UrlMapping> result = service.find("abc");
