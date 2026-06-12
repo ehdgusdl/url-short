@@ -8,11 +8,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +50,16 @@ public class UrlController {
                 mapping.getOriginalUrl()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "단축 URL 삭제", description = "단축 코드에 해당하는 매핑을 삭제하고, Layered 캐시(L1/L2)를 Pub/Sub로 전 인스턴스에서 즉시 무효화합니다. 삭제 후에는 모든 서버에서 즉시 404가 반환됩니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "삭제 성공"),
+            @ApiResponse(responseCode = "404", description = "단축 코드가 존재하지 않음", content = @Content)
+    })
+    @DeleteMapping("/{shortCode}")
+    public ResponseEntity<Void> delete(@Parameter(description = "단축 코드", example = "aB3xK9p") @PathVariable String shortCode) {
+        boolean existed = urlService.delete(shortCode);
+        return existed ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 }

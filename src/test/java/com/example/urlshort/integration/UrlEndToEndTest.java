@@ -1,5 +1,6 @@
 package com.example.urlshort.integration;
 
+import com.example.urlshort.cache.LayeredUrlCache;
 import com.example.urlshort.domain.UrlMapping;
 import com.example.urlshort.dto.CreateUrlRequest;
 import com.example.urlshort.dto.CreateUrlResponse;
@@ -30,9 +31,14 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
     @Autowired
     private UrlMappingRepository repository;
 
+    @Autowired
+    private LayeredUrlCache cache;
+
     @AfterEach
     void cleanUp() {
         repository.deleteAll();
+        // 테스트 간 캐시(L1/L2) 격리 — 잔존 캐시로 인한 Stale 결과 방지.
+        cache.invalidateAll();
     }
 
     @Test
@@ -65,6 +71,39 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
         assertThat(redirectResponse.statusCode()).isEqualTo(302);
         assertThat(redirectResponse.headers().firstValue("Location"))
                 .hasValue("https://example.com/integration");
+    }
+
+    @Test
+    void delete_then_redirect_returns_404() throws Exception {
+        // 생성
+        CreateUrlRequest request = new CreateUrlRequest("https://example.com/to-be-deleted");
+        ResponseEntity<CreateUrlResponse> createResponse = restTemplate.postForEntity(
+                "/api/urls", request, CreateUrlResponse.class);
+        assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String shortCode = createResponse.getBody().shortCode();
+
+        // 삭제 → 204
+        ResponseEntity<Void> deleteResponse = restTemplate.exchange(
+                "/api/urls/" + shortCode, org.springframework.http.HttpMethod.DELETE, null, Void.class);
+        assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(repository.findByShortCode(shortCode)).isEmpty();
+
+        // 삭제 후 리다이렉트 → 404 (캐시 즉시 무효화 확인)
+        String shortUrl = "http://localhost:" + getPort() + "/" + shortCode;
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        HttpResponse<Void> redirectResponse = client.send(
+                HttpRequest.newBuilder().uri(URI.create(shortUrl)).GET().build(),
+                HttpResponse.BodyHandlers.discarding());
+        assertThat(redirectResponse.statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void delete_unknown_shortcode_returns_404() {
+        ResponseEntity<Void> response = restTemplate.exchange(
+                "/api/urls/missingX", org.springframework.http.HttpMethod.DELETE, null, Void.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

@@ -16,5 +16,9 @@ public interface UrlMappingRepository extends JpaRepository<UrlMapping, Long> {
 
     @Modifying
     @Transactional
+    long deleteByShortCode(String shortCode);
+
+    @Modifying
+    @Transactional
     long deleteAllByExpiresAtBefore(Instant cutoff);
 }

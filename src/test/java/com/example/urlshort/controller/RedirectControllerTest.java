@@ -1,6 +1,6 @@
 package com.example.urlshort.controller;
 
-import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.service.UrlService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,12 +27,10 @@ class RedirectControllerTest {
 
     @Test
     void redirect_returns_302_with_location_when_found() throws Exception {
-        UrlMapping mapping = UrlMapping.builder()
-                .id(1L)
-                .shortCode("aB3xK9p")
-                .originalUrl("https://example.com/long")
-                .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
-                .build();
+        UrlView mapping = new UrlView(
+                "aB3xK9p",
+                "https://example.com/long",
+                Instant.now().plus(7, ChronoUnit.DAYS));
         when(urlService.find("aB3xK9p")).thenReturn(Optional.of(mapping));
 
         mockMvc.perform(get("/aB3xK9p"))
@@ -50,12 +48,10 @@ class RedirectControllerTest {
 
     @Test
     void redirect_returns_410_when_expired() throws Exception {
-        UrlMapping expired = UrlMapping.builder()
-                .id(2L)
-                .shortCode("expiredX")
-                .originalUrl("https://example.com/old")
-                .expiresAt(Instant.now().minus(1, ChronoUnit.DAYS))
-                .build();
+        UrlView expired = new UrlView(
+                "expiredX",
+                "https://example.com/old",
+                Instant.now().minus(1, ChronoUnit.DAYS));
         when(urlService.find("expiredX")).thenReturn(Optional.of(expired));
 
         mockMvc.perform(get("/expiredX"))

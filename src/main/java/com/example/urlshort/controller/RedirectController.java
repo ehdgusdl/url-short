@@ -1,6 +1,6 @@
 package com.example.urlshort.controller;
 
-import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.service.UrlService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -36,15 +36,15 @@ public class RedirectController {
     })
     @GetMapping("/{shortCode:[A-Za-z0-9]{6,10}}")
     public ResponseEntity<Void> redirect(@Parameter(description = "단축 코드 (Base62 6~10자)", example = "aB3xK9p") @PathVariable String shortCode) {
-        Optional<UrlMapping> mapping = urlService.find(shortCode);
+        Optional<UrlView> mapping = urlService.find(shortCode);
         if (mapping.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        if (mapping.get().getExpiresAt().isBefore(Instant.now())) {
+        if (mapping.get().expiresAt().isBefore(Instant.now())) {
             return ResponseEntity.status(HttpStatus.GONE).build();
         }
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(mapping.get().getOriginalUrl()))
+                .location(URI.create(mapping.get().originalUrl()))
                 .build();
     }
 }

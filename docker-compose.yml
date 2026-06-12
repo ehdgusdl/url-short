@@ -1,6 +1,12 @@
 services:
-  db:
+  mysql-primary:
     image: mysql:8.0
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
     environment:
       MYSQL_ROOT_PASSWORD: rootpw
       MYSQL_DATABASE: urlshort
@@ -9,9 +15,44 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - mysql-primary-data:/var/lib/mysql
+      - ./docker/mysql/primary-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpw"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  mysql-replica:
+    image: mysql:8.0
+    command:
+      - --server-id=2
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --read-only=ON
+      - --skip-replica-start=OFF
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpw
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-replica-data:/var/lib/mysql
+      - ./docker/mysql/replica-init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpw"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -19,9 +60,14 @@ services:
   app:
     build: .
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: urlshort
-      SPRING_DATASOURCE_PASSWORD: urlshort
+      APP_DATASOURCE_PRIMARY_URL: jdbc:mysql://mysql-primary:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_PRIMARY_USERNAME: urlshort
+      APP_DATASOURCE_PRIMARY_PASSWORD: urlshort
+      APP_DATASOURCE_REPLICA_URL: jdbc:mysql://mysql-replica:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_REPLICA_USERNAME: urlshort
+      APP_DATASOURCE_REPLICA_PASSWORD: urlshort
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       APP_BASE_URL: http://localhost:8080
       SNOWFLAKE_DATACENTER_ID: 0
       SNOWFLAKE_WORKER_ID: 0
@@ -29,8 +75,13 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      db:
+      mysql-primary:
+        condition: service_healthy
+      mysql-replica:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
-  mysql-data:
+  mysql-primary-data:
+  mysql-replica-data:

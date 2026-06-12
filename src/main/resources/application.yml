@@ -1,11 +1,10 @@
 spring:
   application:
     name: url-short
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
-    username: ${SPRING_DATASOURCE_USERNAME:urlshort}
-    password: ${SPRING_DATASOURCE_PASSWORD:urlshort}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   jpa:
     hibernate:
       ddl-auto: update
@@ -28,6 +27,22 @@ springdoc:
 
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
+  datasource:
+    # CQRS: 쓰기는 Primary, 읽기는 Replica로 라우팅. 로컬에선 둘 다 동일 DB를 가리켜도 무방하다.
+    primary:
+      url: ${APP_DATASOURCE_PRIMARY_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_PRIMARY_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_PRIMARY_PASSWORD:urlshort}
+    replica:
+      url: ${APP_DATASOURCE_REPLICA_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_REPLICA_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_REPLICA_PASSWORD:urlshort}
+  cache:
+    local-max-size: ${APP_CACHE_LOCAL_MAX_SIZE:10000}
+    local-ttl: ${APP_CACHE_LOCAL_TTL:5m}
+    l2-ttl: ${APP_CACHE_L2_TTL:1h}
+    # Replication Lag(p99 약 300ms)보다 넉넉히 큰 값으로 두어 생성 직후 Stale을 차단한다.
+    recent-write-ttl: ${APP_CACHE_RECENT_WRITE_TTL:2s}
   snowflake:
     datacenter-id: ${SNOWFLAKE_DATACENTER_ID:0}
     worker-id: ${SNOWFLAKE_WORKER_ID:0}

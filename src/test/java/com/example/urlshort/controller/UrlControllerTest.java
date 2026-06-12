@@ -14,7 +14,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -76,5 +78,23 @@ class UrlControllerTest {
                         throw new AssertionError("Expected 400 or 415 but was " + status);
                     }
                 });
+    }
+
+    @Test
+    void delete_returns_204_when_existing() throws Exception {
+        when(urlService.delete(eq("aB3xK9p"))).thenReturn(true);
+
+        mockMvc.perform(delete("/api/urls/aB3xK9p"))
+                .andExpect(status().isNoContent());
+
+        verify(urlService).delete("aB3xK9p");
+    }
+
+    @Test
+    void delete_returns_404_when_absent() throws Exception {
+        when(urlService.delete(eq("missing"))).thenReturn(false);
+
+        mockMvc.perform(delete("/api/urls/missing"))
+                .andExpect(status().isNotFound());
     }
 }
