@@ -9,6 +9,8 @@ import com.example.urlshort.domain.UrlMapping;
 import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.id.SnowflakeIdGenerator;
 import com.example.urlshort.repository.UrlMappingRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,6 +20,7 @@ import java.util.Optional;
 @Service
 public class UrlService {
 
+    private static final Logger log = LoggerFactory.getLogger(UrlService.class);
     private static final int MAX_RETRIES = 5;
 
     private final UrlMappingRepository repository;
@@ -53,7 +56,14 @@ public class UrlService {
                             .originalUrl(originalUrl)
                             .expiresAt(expiresAt)
                             .build());
-                    // 생성 직후 짧은 TTL 동안 Primary Fallback 대상으로 표시 → 생성 직후 404 차단.
+                    // 생성 직후 조회를 Replica(Replication Lag 구간) 대신 캐시 히트로 흡수하기 위해 L2에 선입력.
+                    // best-effort: 캐시 쓰기 실패가 생성 트랜잭션에 전이되지 않도록 예외를 삼킨다.
+                    try {
+                        cache.prime(saved.getShortCode(), UrlView.from(saved));
+                    } catch (RuntimeException e) {
+                        log.warn("cache prime failed for {} (best-effort, ignored)", saved.getShortCode(), e);
+                    }
+                    // 선입력 유실 시의 백스톱: 최근 Write 키를 짧은 TTL 동안 Primary로 라우팅 → 404 이중 차단.
                     recentWrites.mark(saved.getShortCode());
                     return saved;
                 }
