@@ -4,9 +4,11 @@ import com.example.urlshort.cache.LayeredUrlCache;
 import com.example.urlshort.cache.RecentWriteTracker;
 import com.example.urlshort.config.UrlProperties;
 import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.domain.UrlRead;
 import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.id.SnowflakeIdGenerator;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,9 @@ class UrlServiceTest {
     UrlMappingRepository repository;
 
     @Mock
+    UrlReadRepository readRepository;
+
+    @Mock
     Base62Generator generator;
 
     @Mock
@@ -53,7 +58,7 @@ class UrlServiceTest {
     @BeforeEach
     void setUp() {
         UrlProperties props = new UrlProperties(7, "0 0 * * * *");
-        service = new UrlService(repository, generator, snowflake, props, cache, recentWrites);
+        service = new UrlService(repository, readRepository, generator, snowflake, props, cache, recentWrites);
     }
 
     @Test
@@ -70,6 +75,7 @@ class UrlServiceTest {
         assertThat(result.getOriginalUrl()).isEqualTo("https://example.com");
         assertThat(result.getId()).isEqualTo(1234567890L);
         verify(repository, times(1)).save(any(UrlMapping.class));
+        verify(readRepository, times(1)).save(any(UrlRead.class));
         verify(recentWrites).mark("aB3xK9p");
     }
 
@@ -116,21 +122,21 @@ class UrlServiceTest {
                 .isInstanceOf(IllegalStateException.class);
 
         verify(repository, never()).save(any(UrlMapping.class));
+        verify(readRepository, never()).save(any(UrlRead.class));
         verify(generator, times(5)).generate(anyInt());
     }
 
     @Test
-    @DisplayName("find_returns_view_when_present: 캐시 미스 시 로더가 DB 조회 후 UrlView 반환")
+    @DisplayName("find_returns_view_when_present: 캐시 미스 시 로더가 읽기 모델을 조회해 UrlView 반환")
     void find_returns_view_when_present() {
-        UrlMapping mapping = UrlMapping.builder()
-                .id(1L)
+        UrlRead read = UrlRead.builder()
                 .shortCode("abc")
                 .originalUrl("https://x.com")
                 .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
                 .build();
         delegateCacheToLoader();
         when(recentWrites.isRecent("abc")).thenReturn(false);
-        when(repository.findByShortCode("abc")).thenReturn(Optional.of(mapping));
+        when(readRepository.findById("abc")).thenReturn(Optional.of(read));
 
         Optional<UrlView> result = service.find("abc");
 
@@ -144,7 +150,7 @@ class UrlServiceTest {
     void find_returns_empty_when_absent() {
         delegateCacheToLoader();
         when(recentWrites.isRecent("xyz")).thenReturn(false);
-        when(repository.findByShortCode("xyz")).thenReturn(Optional.empty());
+        when(readRepository.findById("xyz")).thenReturn(Optional.empty());
 
         Optional<UrlView> result = service.find("xyz");
 
@@ -159,6 +165,7 @@ class UrlServiceTest {
         boolean result = service.delete("abc");
 
         assertThat(result).isTrue();
+        verify(readRepository).deleteByShortCode("abc");
         verify(cache).invalidate("abc");
     }
 

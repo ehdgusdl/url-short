@@ -6,12 +6,15 @@ import com.example.urlshort.config.UrlProperties;
 import com.example.urlshort.config.routing.DataSourceContextHolder;
 import com.example.urlshort.config.routing.DataSourceType;
 import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.domain.UrlRead;
 import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.id.SnowflakeIdGenerator;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,16 +27,18 @@ public class UrlService {
     private static final int MAX_RETRIES = 5;
 
     private final UrlMappingRepository repository;
+    private final UrlReadRepository readRepository;
     private final Base62Generator generator;
     private final SnowflakeIdGenerator snowflake;
     private final UrlProperties props;
     private final LayeredUrlCache cache;
     private final RecentWriteTracker recentWrites;
 
-    public UrlService(UrlMappingRepository repository, Base62Generator generator,
+    public UrlService(UrlMappingRepository repository, UrlReadRepository readRepository, Base62Generator generator,
                       SnowflakeIdGenerator snowflake, UrlProperties props,
                       LayeredUrlCache cache, RecentWriteTracker recentWrites) {
         this.repository = repository;
+        this.readRepository = readRepository;
         this.generator = generator;
         this.snowflake = snowflake;
         this.props = props;
@@ -41,6 +46,7 @@ public class UrlService {
         this.recentWrites = recentWrites;
     }
 
+    @Transactional
     public UrlMapping create(String originalUrl) {
         Instant expiresAt = Instant.now().plus(props.ttlDays(), ChronoUnit.DAYS);
         // 유일성 검증과 저장은 Replication Lag의 영향을 받지 않도록 Primary로 고정한다.
@@ -56,6 +62,9 @@ public class UrlService {
                             .originalUrl(originalUrl)
                             .expiresAt(expiresAt)
                             .build());
+                    // 읽기 모델 반영. 쓰기 모델과 같은 트랜잭션에 묶어 한쪽만 남는 상태를 막고,
+                    // Replica로는 MySQL Replication이 전파한다.
+                    readRepository.save(UrlRead.from(saved));
                     // 생성 직후 조회를 Replica(Replication Lag 구간) 대신 캐시 히트로 흡수하기 위해 L2에 선입력.
                     // best-effort: 캐시 쓰기 실패가 생성 트랜잭션에 전이되지 않도록 예외를 삼킨다.
                     try {
@@ -78,9 +87,11 @@ public class UrlService {
         return cache.get(shortCode, () -> loadFromDb(shortCode));
     }
 
+    @Transactional
     public boolean delete(String shortCode) {
         DataSourceContextHolder.set(DataSourceType.PRIMARY);
         try {
+            readRepository.deleteByShortCode(shortCode);
             long removed = repository.deleteByShortCode(shortCode);
             // 삭제 즉시 전 인스턴스 캐시 무효화(L1/L2 + Pub/Sub) → Stale 리다이렉트 차단.
             cache.invalidate(shortCode);
@@ -90,6 +101,7 @@ public class UrlService {
         }
     }
 
+    /** 조회는 읽기 모델(url_read)만 참조한다. 쓰기 모델(url_mapping)은 리다이렉트 경로에서 쓰지 않는다. */
     private Optional<UrlView> loadFromDb(String shortCode) {
         // 최근 Write 키는 Replication Lag 구간이므로 Primary, 그 외에는 Replica로 부하를 분산한다.
         DataSourceType target = recentWrites.isRecent(shortCode)
@@ -97,7 +109,7 @@ public class UrlService {
                 : DataSourceType.REPLICA;
         DataSourceContextHolder.set(target);
         try {
-            return repository.findByShortCode(shortCode).map(UrlView::from);
+            return readRepository.findById(shortCode).map(UrlView::from);
         } finally {
             DataSourceContextHolder.clear();
         }

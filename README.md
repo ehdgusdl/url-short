@@ -18,13 +18,14 @@ Read-heavy(리다이렉트) 특성에 맞춰 읽기 성능과 다중 인스턴�
 
 - **Layered 캐시 + Pub/Sub 즉시 무효화**: L1(로컬 Caffeine)으로 네트워크 I/O 없이 응답하고, L2(Redis)를 공유 캐시로 둡니다. URL 삭제/만료 시 L1·L2를 제거한 뒤 Redis Pub/Sub로 전 인스턴스에 무효화를 브로드캐스트해, TTL 만료를 기다리지 않고 모든 서버의 로컬 캐시를 즉시 비웁니다.
 - **CQRS Primary/Replica 분리**: `AbstractRoutingDataSource`로 쓰기는 Primary, 읽기는 Replica로 라우팅해 자원을 격리합니다. (`docker-compose`에는 GTID 기반 MySQL 복제 2노드가 구성되어 있습니다.)
+- **CQRS 읽기/쓰기 스키마 분리**: 쓰기 모델은 `url_mapping`, 읽기 모델은 리다이렉트에 필요한 최소 컬럼(`short_code` PK, `original_url`, `expires_at`)만 가진 `url_read`입니다. 생성/삭제 시 Primary에서 두 모델을 같은 트랜잭션으로 갱신하고, Replica로는 MySQL Replication이 전파합니다. 리다이렉트 조회는 `url_read`만 참조하므로 쓰기 스키마 변경이 읽기 경로에 닿지 않습니다.
 - **Primary Fallback + Single-flight**: 생성 직후 짧은 TTL 동안 해당 키 읽기를 Primary로 라우팅해 Replication Lag 구간의 생성 직후 404(Stale)를 차단하고, 동일 키 캐시 미스가 몰릴 때 Single-flight로 DB 중복 조회를 통합합니다.
 
 ```
-Client ──▶ App(L1 Caffeine) ──▶ Redis(L2) ──▶ MySQL Replica (읽기)
+Client ──▶ App(L1 Caffeine) ──▶ Redis(L2) ──▶ MySQL Replica  url_read (읽기 모델)
                   ▲                                   ▲
                   │  Pub/Sub 무효화          최근 Write는 Primary로 (Fallback)
-                  └──────────── Redis ◀── MySQL Primary (쓰기) ──복제(GTID)──┘
+                  └──────────── Redis ◀── MySQL Primary  url_mapping + url_read (쓰기) ──복제(GTID)──┘
 ```
 
 ## 실행 방법
