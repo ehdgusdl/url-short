@@ -2,9 +2,11 @@ package com.example.urlshort.integration;
 
 import com.example.urlshort.cache.LayeredUrlCache;
 import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.domain.UrlRead;
 import com.example.urlshort.dto.CreateUrlRequest;
 import com.example.urlshort.dto.CreateUrlResponse;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,11 +34,15 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
     private UrlMappingRepository repository;
 
     @Autowired
+    private UrlReadRepository readRepository;
+
+    @Autowired
     private LayeredUrlCache cache;
 
     @AfterEach
     void cleanUp() {
         repository.deleteAll();
+        readRepository.deleteAll();
         // 테스트 간 캐시(L1/L2) 격리 — 잔존 캐시로 인한 Stale 결과 방지.
         cache.invalidateAll();
     }
@@ -54,8 +60,9 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
         assertThat(body.shortCode()).hasSize(7);
         assertThat(body.shortUrl()).startsWith("http://");
 
-        // DB에 1건 저장 확인
+        // 쓰기 모델·읽기 모델 양쪽에 1건씩 저장 확인
         assertThat(repository.findAll()).hasSize(1);
+        assertThat(readRepository.findAll()).hasSize(1);
 
         // redirect 검증 — redirect를 따라가지 않는 HttpClient 사용
         String shortUrl = "http://localhost:" + getPort() + "/" + body.shortCode();
@@ -87,6 +94,7 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
                 "/api/urls/" + shortCode, org.springframework.http.HttpMethod.DELETE, null, Void.class);
         assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(repository.findByShortCode(shortCode)).isEmpty();
+        assertThat(readRepository.findById(shortCode)).isEmpty();
 
         // 삭제 후 리다이렉트 → 404 (캐시 즉시 무효화 확인)
         String shortUrl = "http://localhost:" + getPort() + "/" + shortCode;
@@ -121,9 +129,26 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
                 .expiresAt(Instant.now().minus(1, ChronoUnit.DAYS))
                 .build();
         repository.save(expired);
+        readRepository.save(UrlRead.from(expired));
 
         ResponseEntity<Void> response = restTemplate.getForEntity("/expiredX", Void.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.GONE);
+    }
+
+    @Test
+    void redirect_reads_only_from_read_model() {
+        // 생성 후 읽기 모델 행만 지우면, 쓰기 모델에 원본이 남아 있어도 404여야 한다
+        // → 리다이렉트 조회가 url_read만 참조한다는 증거.
+        CreateUrlRequest request = new CreateUrlRequest("https://example.com/read-model-only");
+        String shortCode = restTemplate.postForEntity("/api/urls", request, CreateUrlResponse.class)
+                .getBody().shortCode();
+
+        readRepository.deleteById(shortCode);
+        cache.invalidate(shortCode);
+
+        assertThat(repository.findByShortCode(shortCode)).isPresent();
+        assertThat(restTemplate.getForEntity("/" + shortCode, Void.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     private int getPort() {

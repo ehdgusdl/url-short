@@ -1,6 +1,7 @@
 package com.example.urlshort.dto;
 
 import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.domain.UrlRead;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -13,5 +14,9 @@ public record UrlView(String shortCode, String originalUrl, Instant expiresAt) i
 
     public static UrlView from(UrlMapping mapping) {
         return new UrlView(mapping.getShortCode(), mapping.getOriginalUrl(), mapping.getExpiresAt());
+    }
+
+    public static UrlView from(UrlRead read) {
+        return new UrlView(read.getShortCode(), read.getOriginalUrl(), read.getExpiresAt());
     }
 }

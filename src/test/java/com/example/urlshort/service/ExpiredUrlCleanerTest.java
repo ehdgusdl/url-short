@@ -2,6 +2,7 @@ package com.example.urlshort.service;
 
 import com.example.urlshort.cache.LayeredUrlCache;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,9 @@ class ExpiredUrlCleanerTest {
     UrlMappingRepository repository;
 
     @Mock
+    UrlReadRepository readRepository;
+
+    @Mock
     LayeredUrlCache cache;
 
     @InjectMocks
@@ -43,6 +47,8 @@ class ExpiredUrlCleanerTest {
         verify(repository).deleteAllByExpiresAtBefore(captor.capture());
         Instant cutoff = captor.getValue();
         assertThat(cutoff).isAfterOrEqualTo(before).isBeforeOrEqualTo(after);
+        // 읽기 모델도 같은 cutoff로 정리되어야 한다.
+        verify(readRepository).deleteAllByExpiresAtBefore(cutoff);
     }
 
     @Test
