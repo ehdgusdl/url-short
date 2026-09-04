@@ -13,6 +13,7 @@ Spring Boot 기반의 URL 단축 서비스입니다. 긴 URL을 짧은 코드로
 | Cache | Layered L1(Caffeine) + L2(Redis), Pub/Sub 무효화 |
 
 ## 아키텍처
+<img width="1880" height="775" alt="image" src="https://github.com/user-attachments/assets/dcbe140d-50ce-4b6c-bb65-1303251dd83e" />
 
 Read-heavy(리다이렉트) 특성에 맞춰 읽기 성능과 다중 인스턴스 일관성을 함께 확보한 구조입니다.
 
