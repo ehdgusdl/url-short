@@ -97,4 +97,19 @@ class UrlControllerTest {
         mockMvc.perform(delete("/api/urls/missing"))
                 .andExpect(status().isNotFound());
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "javascript:alert(1)",
+            "data:text/html,<script>1</script>",
+            "file:///etc/passwd",
+            "ftp://example.com/x"
+    })
+    void create_rejects_non_http_schemes(String originalUrl) throws Exception {
+        // 등록된 값이 그대로 302 Location으로 나가므로 http/https가 아닌 스킴은 막는다.
+        mockMvc.perform(post("/api/urls")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("originalUrl", originalUrl))))
+                .andExpect(status().isBadRequest());
+    }
 }

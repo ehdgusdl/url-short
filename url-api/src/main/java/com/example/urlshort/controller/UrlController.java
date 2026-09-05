@@ -3,6 +3,7 @@ package com.example.urlshort.controller;
 import com.example.urlshort.domain.UrlMapping;
 import com.example.urlshort.dto.CreateUrlRequest;
 import com.example.urlshort.dto.CreateUrlResponse;
+import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.service.UrlService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -15,11 +16,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @Tag(name = "URL", description = "단축 URL 생성 API")
 @RestController
@@ -50,6 +54,13 @@ public class UrlController {
                 mapping.getOriginalUrl()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "단축 URL 목록", description = "최근 생성된 단축 URL을 최대 50건 반환합니다. 대시보드 화면의 목록에 사용합니다.")
+    @ApiResponse(responseCode = "200", description = "목록 조회 성공")
+    @GetMapping
+    public List<UrlView> list() {
+        return urlService.list();
     }
 
     @Operation(summary = "단축 URL 삭제", description = "단축 코드에 해당하는 매핑을 삭제하고, Layered 캐시(L1/L2)를 Pub/Sub로 전 인스턴스에서 즉시 무효화합니다. 삭제 후에는 모든 서버에서 즉시 404가 반환됩니다.")

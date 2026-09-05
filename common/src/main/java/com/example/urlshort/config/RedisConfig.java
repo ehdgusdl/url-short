@@ -1,6 +1,5 @@
 package com.example.urlshort.config;
 
-import com.example.urlshort.cache.CacheInvalidationListener;
 import com.example.urlshort.dto.UrlView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -10,19 +9,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.listener.ChannelTopic;
-import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
- * L2(Redis) 캐시 및 Pub/Sub 기반 캐시 무효화 채널 구성.
+ * L2(Redis) 캐시 템플릿 구성. url-api(쓰기)와 redirect(읽기)가 같은 직렬화 포맷을 써야 하므로 common에 둔다.
  */
 @Configuration
 public class RedisConfig {
-
-    /** 캐시 무효화 메시지가 오가는 Pub/Sub 채널. */
-    public static final String INVALIDATION_CHANNEL = "url-cache:invalidation";
 
     /** L2 캐시에 {@link UrlView}를 JSON으로 직렬화해 저장하는 템플릿. */
     @Bean
@@ -41,16 +35,5 @@ public class RedisConfig {
         template.setValueSerializer(valueSerializer);
         template.afterPropertiesSet();
         return template;
-    }
-
-    /** 모든 인스턴스가 무효화 채널을 구독해 로컬(L1) 캐시를 즉시 비우도록 하는 리스너 컨테이너. */
-    @Bean
-    public RedisMessageListenerContainer redisMessageListenerContainer(
-            RedisConnectionFactory connectionFactory,
-            CacheInvalidationListener listener) {
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-        container.setConnectionFactory(connectionFactory);
-        container.addMessageListener(listener, new ChannelTopic(INVALIDATION_CHANNEL));
-        return container;
     }
 }

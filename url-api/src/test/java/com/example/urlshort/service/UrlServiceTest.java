@@ -1,7 +1,6 @@
 package com.example.urlshort.service;
 
-import com.example.urlshort.cache.LayeredUrlCache;
-import com.example.urlshort.cache.RecentWriteTracker;
+import com.example.urlshort.cache.UrlCacheWriter;
 import com.example.urlshort.config.UrlProperties;
 import com.example.urlshort.domain.UrlMapping;
 import com.example.urlshort.dto.UrlView;
@@ -16,8 +15,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,17 +40,14 @@ class UrlServiceTest {
     SnowflakeIdGenerator snowflake;
 
     @Mock
-    LayeredUrlCache cache;
-
-    @Mock
-    RecentWriteTracker recentWrites;
+    UrlCacheWriter cache;
 
     UrlService service;
 
     @BeforeEach
     void setUp() {
         UrlProperties props = new UrlProperties(7, "0 0 * * * *");
-        service = new UrlService(repository, generator, snowflake, props, cache, recentWrites);
+        service = new UrlService(repository, generator, snowflake, props, cache);
     }
 
     @Test
@@ -70,7 +64,7 @@ class UrlServiceTest {
         assertThat(result.getOriginalUrl()).isEqualTo("https://example.com");
         assertThat(result.getId()).isEqualTo(1234567890L);
         verify(repository, times(1)).save(any(UrlMapping.class));
-        verify(recentWrites).mark("aB3xK9p");
+        verify(cache).prime(eq("aB3xK9p"), any(UrlView.class));
     }
 
     @Test
@@ -120,38 +114,6 @@ class UrlServiceTest {
     }
 
     @Test
-    @DisplayName("find_returns_view_when_present: 캐시 미스 시 로더가 DB 조회 후 UrlView 반환")
-    void find_returns_view_when_present() {
-        UrlMapping mapping = UrlMapping.builder()
-                .id(1L)
-                .shortCode("abc")
-                .originalUrl("https://x.com")
-                .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS))
-                .build();
-        delegateCacheToLoader();
-        when(recentWrites.isRecent("abc")).thenReturn(false);
-        when(repository.findByShortCode("abc")).thenReturn(Optional.of(mapping));
-
-        Optional<UrlView> result = service.find("abc");
-
-        assertThat(result).isPresent();
-        assertThat(result.get().originalUrl()).isEqualTo("https://x.com");
-        assertThat(result.get().shortCode()).isEqualTo("abc");
-    }
-
-    @Test
-    @DisplayName("find_returns_empty_when_absent: shortCode 없으면 빈 Optional 반환")
-    void find_returns_empty_when_absent() {
-        delegateCacheToLoader();
-        when(recentWrites.isRecent("xyz")).thenReturn(false);
-        when(repository.findByShortCode("xyz")).thenReturn(Optional.empty());
-
-        Optional<UrlView> result = service.find("xyz");
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
     @DisplayName("delete_invalidates_cache: 존재하면 true 반환하고 캐시 무효화 호출")
     void delete_invalidates_cache() {
         when(repository.deleteByShortCode("abc")).thenReturn(1L);
@@ -173,12 +135,4 @@ class UrlServiceTest {
         verify(cache).invalidate("none");
     }
 
-    /** cache.get(code, loader)가 실제로 loader를 수행하도록 위임시켜 DB 조회 경로를 검증한다. */
-    @SuppressWarnings("unchecked")
-    private void delegateCacheToLoader() {
-        when(cache.get(any(String.class), any())).thenAnswer(inv -> {
-            Supplier<Optional<UrlView>> loader = (Supplier<Optional<UrlView>>) inv.getArgument(1);
-            return loader.get();
-        });
-    }
 }

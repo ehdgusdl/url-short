@@ -16,8 +16,6 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class CacheInvalidationListener implements MessageListener {
 
-    public static final String INVALIDATE_ALL = "__ALL__";
-
     private final LayeredUrlCache cache;
 
     // RedisMessageListenerContainer ↔ LayeredUrlCache 간 순환 참조 방지를 위해 지연 주입.
@@ -28,7 +26,7 @@ public class CacheInvalidationListener implements MessageListener {
     @Override
     public void onMessage(Message message, byte[] pattern) {
         String body = new String(message.getBody(), StandardCharsets.UTF_8);
-        if (INVALIDATE_ALL.equals(body)) {
+        if (CacheChannels.INVALIDATE_ALL.equals(body)) {
             cache.evictLocalAll();
         } else {
             cache.evictLocal(body);

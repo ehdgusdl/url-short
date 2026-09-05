@@ -1,7 +1,6 @@
 package com.example.urlshort.service;
 
-import com.example.urlshort.cache.LayeredUrlCache;
-import com.example.urlshort.cache.RecentWriteTracker;
+import com.example.urlshort.cache.UrlCacheWriter;
 import com.example.urlshort.config.UrlProperties;
 import com.example.urlshort.config.routing.DataSourceContextHolder;
 import com.example.urlshort.config.routing.DataSourceType;
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
+import java.util.List;
 
 @Service
 public class UrlService {
@@ -27,18 +26,16 @@ public class UrlService {
     private final Base62Generator generator;
     private final SnowflakeIdGenerator snowflake;
     private final UrlProperties props;
-    private final LayeredUrlCache cache;
-    private final RecentWriteTracker recentWrites;
+    private final UrlCacheWriter cache;
 
     public UrlService(UrlMappingRepository repository, Base62Generator generator,
                       SnowflakeIdGenerator snowflake, UrlProperties props,
-                      LayeredUrlCache cache, RecentWriteTracker recentWrites) {
+                      UrlCacheWriter cache) {
         this.repository = repository;
         this.generator = generator;
         this.snowflake = snowflake;
         this.props = props;
         this.cache = cache;
-        this.recentWrites = recentWrites;
     }
 
     public UrlMapping create(String originalUrl) {
@@ -63,8 +60,6 @@ public class UrlService {
                     } catch (RuntimeException e) {
                         log.warn("cache prime failed for {} (best-effort, ignored)", saved.getShortCode(), e);
                     }
-                    // 선입력 유실 시의 백스톱: 최근 Write 키를 짧은 TTL 동안 Primary로 라우팅 → 404 이중 차단.
-                    recentWrites.mark(saved.getShortCode());
                     return saved;
                 }
             }
@@ -74,30 +69,24 @@ public class UrlService {
         }
     }
 
-    public Optional<UrlView> find(String shortCode) {
-        return cache.get(shortCode, () -> loadFromDb(shortCode));
+    /** 목록 조회는 Replica로 내려 읽기 부하를 분산한다. */
+    public List<UrlView> list() {
+        DataSourceContextHolder.set(DataSourceType.REPLICA);
+        try {
+            return repository.findTop50ByOrderByCreatedAtDesc().stream().map(UrlView::from).toList();
+        } finally {
+            DataSourceContextHolder.clear();
+        }
     }
 
     public boolean delete(String shortCode) {
         DataSourceContextHolder.set(DataSourceType.PRIMARY);
         try {
             long removed = repository.deleteByShortCode(shortCode);
-            // 삭제 즉시 전 인스턴스 캐시 무효화(L1/L2 + Pub/Sub) → Stale 리다이렉트 차단.
+            // 삭제 즉시 전 redirect 인스턴스 캐시 무효화(L2 + Pub/Sub) + 묘비 표시.
+            // 묘비는 복제 지연 구간에 Replica의 옛 행이 캐시로 되살아나는 것을 막는다.
             cache.invalidate(shortCode);
             return removed > 0;
-        } finally {
-            DataSourceContextHolder.clear();
-        }
-    }
-
-    private Optional<UrlView> loadFromDb(String shortCode) {
-        // 최근 Write 키는 Replication Lag 구간이므로 Primary, 그 외에는 Replica로 부하를 분산한다.
-        DataSourceType target = recentWrites.isRecent(shortCode)
-                ? DataSourceType.PRIMARY
-                : DataSourceType.REPLICA;
-        DataSourceContextHolder.set(target);
-        try {
-            return repository.findByShortCode(shortCode).map(UrlView::from);
         } finally {
             DataSourceContextHolder.clear();
         }
