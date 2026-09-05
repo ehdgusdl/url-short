@@ -57,8 +57,62 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
-    build: .
+  # KRaft 단일 노드(ZooKeeper 불필요). redirect가 클릭 이벤트를 발행하는 브로커.
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # 단일 노드라 내부 토픽 복제본도 1이어야 한다.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  # click_queue(Kafka 엔진 테이블)로 이벤트를 흡수해 click_daily로 집계하는 분석 스토어.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      # 자격증명을 주지 않으면 엔트리포인트가 default 유저의 네트워크 접근을 차단한다.
+      CLICKHOUSE_USER: urlshort
+      CLICKHOUSE_PASSWORD: urlshort
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
+    volumes:
+      - ./docker/clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # 단축 URL 생성/조회 API. 쓰기는 Primary, 읽기는 Replica로 라우팅.
+  url-api:
+    build:
+      context: .
+      args:
+        MODULE: url-api
     environment:
       APP_DATASOURCE_PRIMARY_URL: jdbc:mysql://mysql-primary:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       APP_DATASOURCE_PRIMARY_USERNAME: urlshort
@@ -68,12 +122,22 @@ services:
       APP_DATASOURCE_REPLICA_PASSWORD: urlshort
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      APP_BASE_URL: http://localhost:8080
       SNOWFLAKE_DATACENTER_ID: 0
       SNOWFLAKE_WORKER_ID: 0
+      APP_BASE_URL: http://localhost
       APP_URL_TTL_DAYS: 7
+      # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
+      JAVA_OPTS: >-
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9012
+        -Dcom.sun.management.jmxremote.rmi.port=9012
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=127.0.0.1
     ports:
-      - "8080:8080"
+      - "8082:8080"
+      - "127.0.0.1:9012:9012"
     depends_on:
       mysql-primary:
         condition: service_healthy
@@ -82,6 +146,235 @@ services:
       redis:
         condition: service_healthy
 
+  # 단축 코드 리다이렉트 전담. 지연 실험 대상이라 Redis는 toxiproxy 경유로 붙는다.
+  # 클릭 이벤트는 Kafka(events 토픽)로 발행해 ClickHouse 집계로 흘려보낸다.
+  redirect-1:
+    build:
+      context: .
+      args:
+        MODULE: redirect
+    deploy:
+      resources:
+        limits:
+          # CPU는 프리티어(t2.micro) 모사를 위해 1 vCPU 유지. 메모리는 -Xmx1024m 힙 + JVM 오버헤드를 담을 만큼만.
+          cpus: "1.0"
+          memory: 1600m
+    environment:
+      APP_DATASOURCE_PRIMARY_URL: jdbc:mysql://mysql-primary:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_PRIMARY_USERNAME: urlshort
+      APP_DATASOURCE_PRIMARY_PASSWORD: urlshort
+      APP_DATASOURCE_REPLICA_URL: jdbc:mysql://mysql-replica:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_REPLICA_USERNAME: urlshort
+      APP_DATASOURCE_REPLICA_PASSWORD: urlshort
+      SPRING_DATA_REDIS_HOST: toxiproxy
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # 100만 키를 전부 담는 A안(전량 적재)을 재현할 수 있어야 한다.
+      APP_CACHE_LOCAL_MAX_SIZE: 1200000
+      APP_CACHE_REPORT_INTERVAL_MS: ${APP_CACHE_REPORT_INTERVAL_MS:-30000}
+      # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
+      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
+      # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
+      JAVA_OPTS: >-
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.rmi.port=9010
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=127.0.0.1
+        -Xmx1024m
+        -XX:+UseG1GC
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:9010:9010"
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+      mysql-replica:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+
+  redirect-2:
+    build:
+      context: .
+      args:
+        MODULE: redirect
+    deploy:
+      resources:
+        limits:
+          # CPU는 프리티어(t2.micro) 모사를 위해 1 vCPU 유지. 메모리는 -Xmx1024m 힙 + JVM 오버헤드를 담을 만큼만.
+          cpus: "1.0"
+          memory: 1600m
+    environment:
+      APP_DATASOURCE_PRIMARY_URL: jdbc:mysql://mysql-primary:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_PRIMARY_USERNAME: urlshort
+      APP_DATASOURCE_PRIMARY_PASSWORD: urlshort
+      APP_DATASOURCE_REPLICA_URL: jdbc:mysql://mysql-replica:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      APP_DATASOURCE_REPLICA_USERNAME: urlshort
+      APP_DATASOURCE_REPLICA_PASSWORD: urlshort
+      SPRING_DATA_REDIS_HOST: toxiproxy
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # 100만 키를 전부 담는 A안(전량 적재)을 재현할 수 있어야 한다.
+      APP_CACHE_LOCAL_MAX_SIZE: 1200000
+      # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
+      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
+      # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
+      JAVA_OPTS: >-
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9011
+        -Dcom.sun.management.jmxremote.rmi.port=9011
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=127.0.0.1
+        -Xmx1024m
+        -XX:+UseG1GC
+    ports:
+      - "8081:8080"
+      - "127.0.0.1:9011:9011"
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+      mysql-replica:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+
+  # ClickHouse 집계를 읽어 통계를 서빙하는 대시보드 API.
+  dashboard:
+    build:
+      context: .
+      args:
+        MODULE: dashboard
+    environment:
+      APP_CLICKHOUSE_URL: jdbc:clickhouse://clickhouse:8123/default
+      APP_CLICKHOUSE_USERNAME: urlshort
+      APP_CLICKHOUSE_PASSWORD: urlshort
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # 로컬 검증용으로 짧게. 운영은 5분 주기면 충분하다.
+      # 힙 1GB의 10% = 107,374,182B. 엔트리 536B로 나누면 약 200,324건이 예산 상한이다.
+      APP_HOTKEY_HEAP_BUDGET_BYTES: 107374182
+      APP_HOTKEY_INITIAL_DELAY_MS: 15000
+      APP_HOTKEY_INTERVAL_MS: 30000
+      # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
+      JAVA_OPTS: >-
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9013
+        -Dcom.sun.management.jmxremote.rmi.port=9013
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=127.0.0.1
+    ports:
+      - "8083:8080"
+      - "127.0.0.1:9013:9013"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 정적 프론트(React 빌드) 서빙 + API/리다이렉트 라우팅 진입점.
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - url-api
+      - redirect-1
+      - redirect-2
+      - dashboard
+
+  # app↔Redis 사이에 끼워 실전 네트워크 지연(RTT)을 주입한다. 토폴로지는 그대로, 지연만 실제처럼.
+  # 로컬 앱은 SPRING_DATA_REDIS_PORT=6380 으로 이 프록시를 거쳐 Redis에 접속한다.
+  # 지연 주입/해제: ./k6/set-redis-latency.sh <ms>
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    command: ["-host=0.0.0.0", "-config=/config.json"]
+    ports:
+      - "8474:8474"   # 제어 API
+      - "6380:6379"   # 지연 주입된 Redis 프록시 (앱 접속용)
+    volumes:
+      - ./monitoring/toxiproxy/config.json:/config.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    command: ["--redis.addr=redis://redis:6379"]
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-admin-api                    # 벤치 사이 지표 초기화(delete_series)용
+      - --web.enable-remote-write-receiver        # k6 지표를 remote-write로 받기
+      - --storage.tsdb.retention.time=2h
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # 로컬(호스트)에서 gradle bootRun으로 앱을 띄우는 경우 host.docker.internal:8080을 스크레이프한다.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 컨테이너 로그 집계. 캐시 적재/헤드룸 로그를 Grafana에서 바로 훑기 위한 용도다.
+  loki:
+    image: grafana/loki:3.1.1
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./docker/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      # 커버리지/스윕 차트를 Grafana에서 직접 그리기 위한 ClickHouse 데이터소스.
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   mysql-primary-data:
   mysql-replica-data:
+  grafana-data:
+  clickhouse-data:
