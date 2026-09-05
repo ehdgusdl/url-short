@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: url-api
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+    open-in-view: false
+
+server:
+  port: 8080
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  base-url: ${APP_BASE_URL:http://localhost}
+  datasource:
+    primary:
+      url: ${APP_DATASOURCE_PRIMARY_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_PRIMARY_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_PRIMARY_PASSWORD:urlshort}
+    replica:
+      url: ${APP_DATASOURCE_REPLICA_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_REPLICA_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_REPLICA_PASSWORD:urlshort}
+  cache:
+    # 생성 직후 조회를 Replica 대신 L2 히트로 흡수하기 위한 Write-Through 선입력 TTL.
+    prime-ttl: ${APP_CACHE_PRIME_TTL:10s}
+    prime-enabled: ${APP_CACHE_PRIME_ENABLED:true}
+    # 삭제 직후 복제 지연 구간을 덮는 묘비 TTL. Replication Lag(p99 약 300ms)보다 넉넉히 크게.
+    tombstone-ttl: ${APP_CACHE_TOMBSTONE_TTL:10s}
+  snowflake:
+    datacenter-id: ${SNOWFLAKE_DATACENTER_ID:0}
+    worker-id: ${SNOWFLAKE_WORKER_ID:0}
+  url:
+    ttl-days: ${APP_URL_TTL_DAYS:7}
+    cleanup-cron: "${APP_URL_CLEANUP_CRON:0 0 * * * *}"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,writeguard
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: url-api

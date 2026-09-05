@@ -1,6 +1,8 @@
 .git
 .gradle
 build
+*/build
+*/.gradle
 .idea
 .vscode
 *.iml
@@ -9,3 +11,7 @@ build
 out
 bin
 README.md
+node_modules
+web/dist
+k6
+monitoring

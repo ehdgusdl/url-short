@@ -1,0 +1,67 @@
+spring:
+  application:
+    name: redirect
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+    open-in-view: false
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: "1"
+      properties:
+        # 발행이 리다이렉트 응답을 붙잡지 않도록 짧게 끊는다.
+        delivery.timeout.ms: 5000
+        request.timeout.ms: 3000
+        max.block.ms: 1000
+
+server:
+  port: 8080
+
+app:
+  datasource:
+    primary:
+      url: ${APP_DATASOURCE_PRIMARY_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_PRIMARY_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_PRIMARY_PASSWORD:urlshort}
+    replica:
+      url: ${APP_DATASOURCE_REPLICA_URL:jdbc:mysql://localhost:3306/urlshort?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+      username: ${APP_DATASOURCE_REPLICA_USERNAME:urlshort}
+      password: ${APP_DATASOURCE_REPLICA_PASSWORD:urlshort}
+  cache:
+    l1-enabled: ${APP_CACHE_L1_ENABLED:true}
+    local-max-size: ${APP_CACHE_LOCAL_MAX_SIZE:10000}
+    local-ttl: ${APP_CACHE_LOCAL_TTL:5m}
+    l2-ttl: ${APP_CACHE_L2_TTL:1h}
+  kafka:
+    click-topic: ${APP_KAFKA_CLICK_TOPIC:events}
+    click-partitions: ${APP_KAFKA_CLICK_PARTITIONS:3}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,l1cache,invalidation
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: redirect
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      # 로그로도 p99를 찍기 위해 클라이언트 측 백분위를 함께 계산한다.
+      percentiles:
+        http.server.requests: 0.95,0.99
+      slo:
+        http.server.requests: 1ms,5ms,10ms,25ms,50ms,100ms,250ms,500ms,1s
