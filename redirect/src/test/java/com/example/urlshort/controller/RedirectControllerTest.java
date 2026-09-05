@@ -1,7 +1,8 @@
 package com.example.urlshort.controller;
 
 import com.example.urlshort.dto.UrlView;
-import com.example.urlshort.service.UrlService;
+import com.example.urlshort.event.ClickEventPublisher;
+import com.example.urlshort.service.RedirectService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -12,6 +13,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -23,7 +26,10 @@ class RedirectControllerTest {
     MockMvc mockMvc;
 
     @MockitoBean
-    UrlService urlService;
+    RedirectService redirectService;
+
+    @MockitoBean
+    ClickEventPublisher clickEvents;
 
     @Test
     void redirect_returns_302_with_location_when_found() throws Exception {
@@ -31,19 +37,24 @@ class RedirectControllerTest {
                 "aB3xK9p",
                 "https://example.com/long",
                 Instant.now().plus(7, ChronoUnit.DAYS));
-        when(urlService.find("aB3xK9p")).thenReturn(Optional.of(mapping));
+        when(redirectService.find("aB3xK9p")).thenReturn(Optional.of(mapping));
 
         mockMvc.perform(get("/aB3xK9p"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", "https://example.com/long"));
+
+        // 302를 돌려준 요청만 집계 대상이다.
+        verify(clickEvents).publish("aB3xK9p");
     }
 
     @Test
     void redirect_returns_404_when_not_found() throws Exception {
-        when(urlService.find("nopenope")).thenReturn(Optional.empty());
+        when(redirectService.find("nopenope")).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/nopenope"))
                 .andExpect(status().isNotFound());
+
+        verify(clickEvents, never()).publish("nopenope");
     }
 
     @Test
@@ -52,7 +63,7 @@ class RedirectControllerTest {
                 "expiredX",
                 "https://example.com/old",
                 Instant.now().minus(1, ChronoUnit.DAYS));
-        when(urlService.find("expiredX")).thenReturn(Optional.of(expired));
+        when(redirectService.find("expiredX")).thenReturn(Optional.of(expired));
 
         mockMvc.perform(get("/expiredX"))
                 .andExpect(status().isGone());

@@ -1,7 +1,8 @@
 package com.example.urlshort.controller;
 
 import com.example.urlshort.dto.UrlView;
-import com.example.urlshort.service.UrlService;
+import com.example.urlshort.event.ClickEventPublisher;
+import com.example.urlshort.service.RedirectService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -22,10 +23,12 @@ import java.util.Optional;
 @RestController
 public class RedirectController {
 
-    private final UrlService urlService;
+    private final RedirectService redirectService;
+    private final ClickEventPublisher clickEvents;
 
-    public RedirectController(UrlService urlService) {
-        this.urlService = urlService;
+    public RedirectController(RedirectService redirectService, ClickEventPublisher clickEvents) {
+        this.redirectService = redirectService;
+        this.clickEvents = clickEvents;
     }
 
     @Operation(summary = "단축 URL 리다이렉트", description = "단축 코드를 원본 URL로 302 리다이렉트합니다. 코드가 존재하지 않으면 404, 만료된 코드는 410 Gone을 반환합니다.")
@@ -36,13 +39,15 @@ public class RedirectController {
     })
     @GetMapping("/{shortCode:[A-Za-z0-9]{6,10}}")
     public ResponseEntity<Void> redirect(@Parameter(description = "단축 코드 (Base62 6~10자)", example = "aB3xK9p") @PathVariable String shortCode) {
-        Optional<UrlView> mapping = urlService.find(shortCode);
+        Optional<UrlView> mapping = redirectService.find(shortCode);
         if (mapping.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         if (mapping.get().expiresAt().isBefore(Instant.now())) {
             return ResponseEntity.status(HttpStatus.GONE).build();
         }
+        // 집계용 클릭 이벤트는 비동기 발행이라 응답을 붙잡지 않는다.
+        clickEvents.publish(shortCode);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(mapping.get().originalUrl()))
                 .build();
