@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: dashboard
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+server:
+  port: 8080
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  clickhouse:
+    url: ${APP_CLICKHOUSE_URL:jdbc:clickhouse://localhost:8123/default}
+    username: ${APP_CLICKHOUSE_USERNAME:default}
+    password: ${APP_CLICKHOUSE_PASSWORD:}
+  hotkey:
+    # 분포가 정한 목표: 조회수 상위 10%
+    ratio: ${APP_HOTKEY_RATIO:0.10}
+    # 예산이 정한 상한: 힙 1GB의 10%
+    heap-budget-bytes: ${APP_HOTKEY_HEAP_BUDGET_BYTES:107374182}
+    # 엔트리 1건 실측 점유(키 + 값 + 캐시 구조 오버헤드)
+    bytes-per-entry: ${APP_HOTKEY_BYTES_PER_ENTRY:536}
+    lookback-days: ${APP_HOTKEY_LOOKBACK_DAYS:6}
+    # N번에 한 번은 전체 스냅샷을 보낸다. 증분만 계속 보내면 메시지를 놓친 인스턴스가 복구되지 못한다.
+    snapshot-every: ${APP_HOTKEY_SNAPSHOT_EVERY:10}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: dashboard
