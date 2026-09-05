@@ -1,6 +1,5 @@
 package com.example.urlshort.cache;
 
-import com.example.urlshort.config.RedisConfig;
 import com.example.urlshort.dto.UrlView;
 import com.github.benmanes.caffeine.cache.Cache;
 import io.micrometer.core.instrument.Counter;
@@ -11,73 +10,66 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /**
- * L1(로컬 Caffeine) + L2(Redis) 2단 캐시.
+ * L1(로컬 Caffeine) + L2(Redis) 2단 캐시의 <b>읽기 경로</b>.
  *
  * <p>조회는 L1 → L2 → 로더(DB) 순으로 폴백하며, 미스 시 {@link SingleFlight}로 동일 키 중복 적재를 막는다.
- * 무효화는 L1/L2를 모두 제거한 뒤 Pub/Sub로 전 인스턴스에 브로드캐스트해, TTL 만료를 기다리지 않고
- * 모든 서버의 L1을 즉시 비운다.
+ * L1 적재는 {@link HotKeySet}이 허용한 키로만 제한한다(admission) — 조건 없는 put이 힙을 URL 총량에
+ * 정비례해 밀어 올리던 원인이었다.
+ *
+ * <p>쓰기(선입력·무효화 발행)는 url-api의 UrlCacheWriter가 소유한다. 여기서는 Pub/Sub로 받은
+ * 무효화를 로컬 L1에 적용하기만 한다.
  */
 @Component
 public class LayeredUrlCache {
 
-    static final String KEY_PREFIX = "url:";
-
     private final Cache<String, UrlView> l1;
     private final RedisTemplate<String, UrlView> l2;
-    private final StringRedisTemplate publisher;
+    private final StringRedisTemplate strings;
     private final SingleFlight singleFlight;
-    private final Duration l2Ttl;
-    private final Duration primeTtl;
+    private final HotKeySet hotKeys;
+    private final java.time.Duration l2Ttl;
 
     /**
      * L1(로컬 Caffeine) 사용 여부. 벤치마크에서 재시작 없이 "Redis 단독" ↔ "레이어드"를 전환하기 위한 런타임 스위치.
-     * 끄면 조회가 L2(Redis) → DB만 타므로 히트마다 앱↔Redis 네트워크 왕복이 발생하는 순수 Redis 캐시가 된다.
      */
     private final AtomicBoolean l1Enabled;
 
     /**
      * Pub/Sub 무효화 전파 적용 여부. 무효화 검증의 <b>음성대조군</b>이다.
-     * 끄면 구독 메시지를 받아도 L1을 비우지 않아, "Pub/Sub가 없거나 메시지를 놓친 인스턴스"를 재현한다.
-     * 이 상태에서 다른 인스턴스가 삭제한 키를 조회하면 L1에 남은 값으로 Stale 302를 계속 응답한다
-     * (발행 인스턴스가 L2는 이미 지웠으므로, 그 Stale은 반드시 L1에서 온 것 = L1 잔존의 증거).
+     * 끄면 구독 메시지를 받아도 L1을 비우지 않아 "메시지를 놓친 인스턴스"를 재현한다.
      */
     private final AtomicBoolean propagationEnabled;
 
-    // 계층별 요청/히트/로드 계측. Grafana에서 계층별 적중률·서빙 분포·Redis 호출 절감을 계산한다.
-    private final Counter l1Requests;   // L1을 조회한 횟수(useL1일 때만)
-    private final Counter l1Hits;       // L1에서 값을 찾은 횟수
-    private final Counter l2Requests;   // L2(Redis)를 조회한 횟수
-    private final Counter l2Hits;       // L2에서 값을 찾은 횟수
-    private final Counter dbLoads;      // 로더(DB)까지 내려간 횟수
-
-    // 무효화 전파 계측. 발행(publisher) vs 수신·적용(subscriber)을 인스턴스별로 대조해
-    // Pub/Sub 전파와 유실(at-most-once)을 Grafana에서 정량화한다.
-    private final Counter invPublishedSingle; // 단일 키 무효화를 발행한 횟수
-    private final Counter invPublishedAll;    // 전체 무효화를 발행한 횟수
-    private final Counter invReceivedSingle;  // 단일 키 무효화를 수신·적용(L1 evict)한 횟수
-    private final Counter invReceivedAll;      // 전체 무효화를 수신·적용한 횟수
+    private final Counter l1Requests;
+    private final Counter l1Hits;
+    private final Counter l2Requests;
+    private final Counter l2Hits;
+    private final Counter dbLoads;
+    private final Counter l1Admitted;   // 핫키라서 L1에 적재한 횟수
+    private final Counter l1Rejected;   // 핫키가 아니라 L1을 건너뛴 횟수
+    private final Counter invReceivedSingle;
+    private final Counter invReceivedAll;
+    private final Counter tombstoned;   // 복제 지연 구간이라 되살리지 않고 버린 로더 결과
 
     public LayeredUrlCache(@Qualifier("localUrlCache") Cache<String, UrlView> l1,
                            RedisTemplate<String, UrlView> l2,
-                           StringRedisTemplate publisher,
+                           StringRedisTemplate strings,
                            SingleFlight singleFlight,
-                           @Value("${app.cache.l2-ttl:1h}") Duration l2Ttl,
-                           @Value("${app.cache.prime-ttl:10s}") Duration primeTtl,
+                           HotKeySet hotKeys,
+                           @Value("${app.cache.l2-ttl:1h}") java.time.Duration l2Ttl,
                            @Value("${app.cache.l1-enabled:true}") boolean l1Enabled,
                            MeterRegistry registry) {
         this.l1 = l1;
         this.l2 = l2;
-        this.publisher = publisher;
+        this.strings = strings;
         this.singleFlight = singleFlight;
+        this.hotKeys = hotKeys;
         this.l2Ttl = l2Ttl;
-        this.primeTtl = primeTtl;
         this.l1Enabled = new AtomicBoolean(l1Enabled);
         this.propagationEnabled = new AtomicBoolean(true);
         this.l1Requests = Counter.builder("urlcache.requests").tag("layer", "l1").register(registry);
@@ -85,18 +77,21 @@ public class LayeredUrlCache {
         this.l2Requests = Counter.builder("urlcache.requests").tag("layer", "l2").register(registry);
         this.l2Hits = Counter.builder("urlcache.hits").tag("layer", "l2").register(registry);
         this.dbLoads = Counter.builder("urlcache.loads").register(registry);
-        this.invPublishedSingle = Counter.builder("urlcache.invalidations.published").tag("scope", "single").register(registry);
-        this.invPublishedAll = Counter.builder("urlcache.invalidations.published").tag("scope", "all").register(registry);
+        this.l1Admitted = Counter.builder("urlcache.admission").tag("result", "admitted").register(registry);
+        this.l1Rejected = Counter.builder("urlcache.admission").tag("result", "rejected").register(registry);
         this.invReceivedSingle = Counter.builder("urlcache.invalidations.received").tag("scope", "single").register(registry);
         this.invReceivedAll = Counter.builder("urlcache.invalidations.received").tag("scope", "all").register(registry);
-        // 대시보드에서 현재 모드(레이어드=1 / Redis 단독=0)를 시계열로 확인할 수 있게 게이지로 노출.
+        this.tombstoned = Counter.builder("urlcache.tombstoned").register(registry);
         registry.gauge("urlcache.l1.enabled", this.l1Enabled, b -> b.get() ? 1.0 : 0.0);
-        // 무효화 전파 상태(적용=1 / 미적용=0)도 게이지로 노출 → 검증 대시보드에서 on/off 구간 구분.
         registry.gauge("urlcache.invalidation.propagation.enabled", this.propagationEnabled, b -> b.get() ? 1.0 : 0.0);
+        // L1 엔트리 수. 힙 사용량과 나란히 봐야 "무엇이 힙을 먹고 있는가"가 보인다.
+        registry.gauge("urlcache.l1.entries", l1, com.github.benmanes.caffeine.cache.Cache::estimatedSize);
     }
 
     public Optional<UrlView> get(String shortCode, Supplier<Optional<UrlView>> loader) {
-        boolean useL1 = l1Enabled.get();
+        // 적재 여부는 요청당 한 번만 판정한다. 미스 경로에서 다시 판정하면 요청 1건이
+        // admission 카운터를 두 번 올려 지표가 부풀려진다.
+        boolean useL1 = useL1For(shortCode);
         if (useL1) {
             l1Requests.increment();
             UrlView fromL1 = l1.getIfPresent(shortCode);
@@ -107,7 +102,7 @@ public class LayeredUrlCache {
         }
 
         l2Requests.increment();
-        UrlView fromL2 = l2.opsForValue().get(KEY_PREFIX + shortCode);
+        UrlView fromL2 = l2.opsForValue().get(CacheChannels.KEY_PREFIX + shortCode);
         if (fromL2 != null) {
             l2Hits.increment();
             if (useL1) {
@@ -117,9 +112,9 @@ public class LayeredUrlCache {
         }
 
         return singleFlight.execute(shortCode, () -> {
-            // 대기 중 다른 스레드가 채웠을 수 있으므로 L1 재확인.
-            if (l1Enabled.get()) {
-                l1Requests.increment();
+            // 대기 중 다른 스레드가 채웠을 수 있으므로 L1 재확인(판정은 위에서 이미 끝났다).
+            if (useL1) {
+                // 재확인 조회다. requests를 또 올리면 요청 수보다 커져 히트율이 실제보다 낮게 나온다.
                 UrlView racedL1 = l1.getIfPresent(shortCode);
                 if (racedL1 != null) {
                     l1Hits.increment();
@@ -128,9 +123,15 @@ public class LayeredUrlCache {
             }
             Optional<UrlView> loaded = loader.get();
             dbLoads.increment();
+            // 방금 삭제된 키인데 Replica가 아직 옛 행을 갖고 있는 경우다. 여기서 캐시에 담으면
+            // 무효화 메시지는 이미 지나갔으므로 L2 TTL 내내 삭제된 URL이 계속 302된다.
+            if (loaded.isPresent() && isTombstoned(shortCode)) {
+                tombstoned.increment();
+                return Optional.<UrlView>empty();
+            }
             loaded.ifPresent(view -> {
-                l2.opsForValue().set(KEY_PREFIX + shortCode, view, l2Ttl);
-                if (l1Enabled.get()) {
+                l2.opsForValue().set(CacheChannels.KEY_PREFIX + shortCode, view, l2Ttl);
+                if (useL1) {
                     l1.put(shortCode, view);
                 }
             });
@@ -139,25 +140,35 @@ public class LayeredUrlCache {
     }
 
     /**
-     * 생성 직후 조회를 캐시 히트로 흡수하기 위한 L2(Redis) 선입력(Write-Through).
-     *
-     * <p>URL 생성 시점에 값을 미리 심어, 생성 직후 조회가 Replication Lag 구간의 Replica로 내려가
-     * 404를 반환하는 것을 차단한다. TTL은 짧게(prime-ttl) 잡아 미조회 키의 캐시 오염을 막는다.
-     * L1은 인스턴스 로컬이라 다른 인스턴스에는 도움이 되지 않으므로, 공유 캐시인 L2에만 심는다.
+     * 삭제 직후 복제 지연 구간인지. 로더가 값을 찾았을 때만 확인해 Redis 왕복을 최소화한다.
+     * 확인 자체가 실패하면 되살리는 쪽보다 버리는 쪽이 안전하다고 보고 삭제로 간주하지 않는다.
      */
-    public void prime(String shortCode, UrlView view) {
-        l2.opsForValue().set(KEY_PREFIX + shortCode, view, primeTtl);
+    private boolean isTombstoned(String shortCode) {
+        try {
+            return Boolean.TRUE.equals(strings.hasKey(CacheChannels.TOMBSTONE_PREFIX + shortCode));
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
-    /** L1 사용 여부 조회. */
+    /** 이 키에 L1을 쓸지 판단. L1이 켜져 있고 핫키 목록이 허용해야 한다. */
+    private boolean useL1For(String shortCode) {
+        if (!l1Enabled.get()) {
+            return false;
+        }
+        if (hotKeys.admits(shortCode)) {
+            l1Admitted.increment();
+            return true;
+        }
+        l1Rejected.increment();
+        return false;
+    }
+
     public boolean isL1Enabled() {
         return l1Enabled.get();
     }
 
-    /**
-     * L1 런타임 토글. 끌 때는 남아 있는 로컬 캐시가 다음 벤치에 영향을 주지 않도록 즉시 비운다.
-     * 벤치마크에서 "Redis 단독" ↔ "레이어드"를 재시작 없이 전환하는 용도.
-     */
+    /** L1 런타임 토글. 끌 때는 남아 있는 로컬 캐시가 다음 벤치에 영향을 주지 않도록 즉시 비운다. */
     public void setL1Enabled(boolean enabled) {
         l1Enabled.set(enabled);
         if (!enabled) {
@@ -165,43 +176,16 @@ public class LayeredUrlCache {
         }
     }
 
-    /** 단일 키 즉시 무효화: 로컬·Redis 제거 후 전 인스턴스에 무효화 브로드캐스트. */
-    public void invalidate(String shortCode) {
-        l1.invalidate(shortCode);
-        l2.delete(KEY_PREFIX + shortCode);
-        publisher.convertAndSend(RedisConfig.INVALIDATION_CHANNEL, shortCode);
-        invPublishedSingle.increment();
-    }
-
-    /** 전체 무효화: 만료 정리 등 대량 변경 시 사용. */
-    public void invalidateAll() {
-        l1.invalidateAll();
-        Set<String> keys = l2.keys(KEY_PREFIX + "*");
-        if (keys != null && !keys.isEmpty()) {
-            l2.delete(keys);
-        }
-        publisher.convertAndSend(RedisConfig.INVALIDATION_CHANNEL, CacheInvalidationListener.INVALIDATE_ALL);
-        invPublishedAll.increment();
-    }
-
-    /** 무효화 전파 적용 여부 조회. */
     public boolean isPropagationEnabled() {
         return propagationEnabled.get();
     }
 
-    /**
-     * 무효화 전파 토글(검증용 음성대조군). 끄면 이후 수신 메시지에 대해 L1을 비우지 않아
-     * "Pub/Sub가 없거나 메시지를 놓친 인스턴스"를 재현한다.
-     */
+    /** 무효화 전파 토글(검증용 음성대조군). */
     public void setPropagationEnabled(boolean enabled) {
         propagationEnabled.set(enabled);
     }
 
-    /**
-     * Pub/Sub 수신 시 로컬(L1)만 비운다. L2는 발행 인스턴스가 이미 제거했다.
-     * 전파가 꺼져 있으면(음성대조군) 아무것도 하지 않아 L1에 Stale이 남는다 → 수신 카운터도 올리지 않으므로
-     * Grafana에서 '발행 vs 수신' 갭으로 미전파가 드러난다.
-     */
+    /** Pub/Sub 수신 시 로컬(L1)만 비운다. L2는 발행 측(url-api)이 이미 제거했다. */
     void evictLocal(String shortCode) {
         if (!propagationEnabled.get()) {
             return;
@@ -216,5 +200,10 @@ public class LayeredUrlCache {
         }
         l1.invalidateAll();
         invReceivedAll.increment();
+    }
+
+    /** 현재 L1 엔트리 수(검증·대시보드용). */
+    public long localSize() {
+        return l1.estimatedSize();
     }
 }
