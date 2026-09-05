@@ -1,0 +1,141 @@
+{
+  "uid": "url-short-cache",
+  "title": "URL Shortener — Redis vs Layered Cache",
+  "tags": ["url-short", "cache", "benchmark"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 5,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "처리량 (구간 최대 TPS)",
+      "description": "k6 측정 구간(measure) 기준. 웜업/세팅 트래픽 제외.",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(k6_http_reqs_total{scenario=\"measure\"}[30s]))", "refId": "A", "legendFormat": "TPS" } ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["max"] } },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "리다이렉트 지연 p95 / p99 (k6, 구간 최대)",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max(k6_redirect_latency_p95)", "refId": "A", "legendFormat": "p95" },
+        { "expr": "max(k6_redirect_latency_p99)", "refId": "B", "legendFormat": "p99" }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["max"] } },
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "fixed", "fixedColor": "orange" } } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "전체 캐시 적중률 (구간 최대)",
+      "description": "(L1히트+L2히트) / 전체 조회. 두 모드 모두 ~100% — 적중률은 같고 '히트의 비용'만 다르다는 게 요점.",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(rate(urlcache_hits_total[30s])) / clamp_min(sum(rate(urlcache_hits_total[30s])) + sum(rate(urlcache_loads_total[30s])), 0.001)", "refId": "A", "legendFormat": "hit ratio" } ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["max"] } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "응답 시간 & 처리량 (동일 TPS · 중간에 L1 OFF → 계단식 대조)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "리다이렉트 지연 백분위 (p50 / p95 / p99) — k6 실측",
+      "description": "k6 클라이언트 측 실제 end-to-end 지연. 측정 구간만 기록되어 시작 스파이크가 없고, p50/p95/p99가 실제 값으로 분리된다.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max(k6_redirect_latency_p50)", "refId": "A", "legendFormat": "p50" },
+        { "expr": "max(k6_redirect_latency_p95)", "refId": "B", "legendFormat": "p95" },
+        { "expr": "max(k6_redirect_latency_p99)", "refId": "C", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "처리량 (TPS) — k6 실측",
+      "description": "k6 측정 구간(measure). 웜업/세팅 트래픽 제외.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(k6_http_reqs_total{scenario=\"measure\"}[30s]))", "refId": "A", "legendFormat": "TPS" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "fixed", "fixedColor": "green" }, "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never" } } }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "캐시 계층 이동 & Redis 부하",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "계층별 서빙 분포 (L1 / L2 / DB)",
+      "description": "누가 응답했나. 레이어드=L1(로컬)이, Redis 단독=L2(Redis)가 담당. DB는 워밍 미스뿐.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(urlcache_hits_total{layer=\"l1\"}[30s]))", "refId": "A", "legendFormat": "L1 (local)" },
+        { "expr": "sum(rate(urlcache_hits_total{layer=\"l2\"}[30s]))", "refId": "B", "legendFormat": "L2 (redis)" },
+        { "expr": "sum(rate(urlcache_loads_total[30s]))", "refId": "C", "legendFormat": "DB load" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 25, "stacking": { "mode": "normal" }, "showPoints": "never" } } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Redis 명령 처리량 (ops/s)",
+      "description": "핫키가 단일 Redis로 수렴하는 부하. 레이어드에선 L1이 흡수해 바닥, Redis 단독에선 치솟는다 = 네트워크/노드 부하 절감.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "rate(redis_commands_processed_total[30s])", "refId": "A", "legendFormat": "Redis commands/s" } ],
+      "fieldConfig": { "defaults": { "unit": "ops", "color": { "mode": "fixed", "fixedColor": "red" }, "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Redis 네트워크 I/O 대역폭",
+      "description": "레이어드에서 in/out bytes/s가 낮아지는 만큼이 네트워크 절감분.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "rate(redis_net_input_bytes_total[30s])", "refId": "A", "legendFormat": "in" },
+        { "expr": "rate(redis_net_output_bytes_total[30s])", "refId": "B", "legendFormat": "out" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } } }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "앱 CPU 사용률",
+      "description": "지연 차이가 CPU 포화 탓인지 배제용. (로컬에선 app·k6·redis가 한 머신이라 절대값보다 추세만 참고)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "process_cpu_usage", "refId": "A", "legendFormat": "process CPU" },
+        { "expr": "system_cpu_usage", "refId": "B", "legendFormat": "system CPU" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } } }
+    }
+  ],
+  "__inputs": [],
+  "__requires": []
+}

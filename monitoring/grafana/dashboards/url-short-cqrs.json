@@ -1,0 +1,210 @@
+{
+  "uid": "url-short-cqrs",
+  "title": "URL Shortener — CQRS 라우팅 & 읽기/쓰기 격리",
+  "tags": ["url-short", "cqrs", "routing"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 3,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "gauge",
+      "title": "Primary vs Replica 트래픽 분담률",
+      "description": "커넥션 획득(acquire) 기준 라우팅 분담률. LazyConnectionDataSourceProxy 덕에 커넥션은 첫 쿼리 시점에 잡히므로, 풀별 acquire 수 ≈ 각 DataSource로 라우팅된 트랜잭션 비율. 화면 시간창($__range) 전체 누적으로 계산하므로 부하가 끝나 idle이어도 방금 판의 분담률이 안정적으로 표시된다. read-heavy 부하에서 Replica가 지배적이어야 라우팅이 정상.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "Replica",
+          "expr": "sum(increase(hikaricp_connections_acquire_seconds_count{pool=\"replica-pool\"}[$__range])) / clamp_min(sum(increase(hikaricp_connections_acquire_seconds_count[$__range])), 1)"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "Primary",
+          "expr": "sum(increase(hikaricp_connections_acquire_seconds_count{pool=\"primary-pool\"}[$__range])) / clamp_min(sum(increase(hikaricp_connections_acquire_seconds_count[$__range])), 1)"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Replica" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Primary" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Write 부하 폭증 시 Read p99 레이턴시 (격리성 증명)",
+      "description": "핵심 패널. 왼쪽 축 = 리다이렉트(읽기) p99 지연, 오른쪽 축 = URL 생성(쓰기) TPS. 쓰기 TPS가 치솟는 구간에도 읽기 p99가 평평하면, 읽기가 쓰기 부하로부터 물리적으로 격리됐다는 증거(Replica 분리 효과).",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "Read p99 (리다이렉트)",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{method=\"GET\", uri=~\".*shortCode.*\"}[30s])) by (le))"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "Read p95 (리다이렉트)",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{method=\"GET\", uri=~\".*shortCode.*\"}[30s])) by (le))"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "Write TPS (생성)",
+          "expr": "sum(rate(http_server_requests_seconds_count{method=\"POST\", uri=\"/api/urls\"}[30s]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "axisPlacement": "left" },
+          "unit": "s",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Write TPS (생성)" },
+            "properties": [
+              { "id": "unit", "value": "reqps" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Read p99 (리다이렉트)" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Read p95 (리다이렉트)" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } } ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HikariCP Pool Active Connections (Primary/Replica 풀 분리)",
+      "description": "풀별 '순간' 활성 커넥션(gauge). 조회가 sub-ms라 어느 순간에도 커넥션을 붙잡고 있을 확률이 낮아(평균 동시 <0.5개, Little's law) 2초 스냅샷에는 대개 0으로 잡힌다. Replica가 노는 게 아니라 너무 빨라서다 — 실제 처리량은 오른쪽 'acquire rate' 패널(카운터 기반)로 확인.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "primary active",
+          "expr": "sum(hikaricp_connections_active{pool=\"primary-pool\"})"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "replica active",
+          "expr": "sum(hikaricp_connections_active{pool=\"replica-pool\"})"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "primary pending",
+          "expr": "sum(hikaricp_connections_pending{pool=\"primary-pool\"})"
+        },
+        {
+          "refId": "D",
+          "legendFormat": "replica pending",
+          "expr": "sum(hikaricp_connections_pending{pool=\"replica-pool\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "short",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "primary active" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "replica active" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "primary pending" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }, { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "replica pending" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }, { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } } ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "라우팅 처리율 — Pool Acquire Rate (초당 라우팅 건수)",
+      "description": "풀별 초당 커넥션 획득 수 = 각 DataSource로 라우팅된 트랜잭션 처리율. 카운터(rate) 기반이라 조회가 sub-ms여도 샘플링에 새지 않는다. 왼쪽 'active' 패널이 0으로 보여도 여기서 replica가 실제로 수백 건/초를 처리 중인 게 드러난다. 읽기 전 구간 Replica가 지배, write burst 때만 Primary가 솟는다.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "replica acquire/s",
+          "expr": "sum(rate(hikaricp_connections_acquire_seconds_count{pool=\"replica-pool\"}[30s]))"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "primary acquire/s",
+          "expr": "sum(rate(hikaricp_connections_acquire_seconds_count{pool=\"primary-pool\"}[30s]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "replica acquire/s" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "primary acquire/s" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}

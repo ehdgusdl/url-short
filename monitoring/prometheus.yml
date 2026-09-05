@@ -1,0 +1,34 @@
+global:
+  # 부하 테스트 구간을 촘촘히 보기 위해 짧은 간격으로 스크레이프한다.
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: url-short
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # 모듈별 인스턴스를 instance 라벨로 구분해 스크레이프.
+      - targets: ["url-api:8080"]
+        labels:
+          instance: url-api
+      - targets: ["redirect-1:8080"]
+        labels:
+          instance: redirect-1
+      - targets: ["redirect-2:8080"]
+        labels:
+          instance: redirect-2
+      - targets: ["dashboard:8080"]
+        labels:
+          instance: dashboard
+
+  # Redis 인프라 부하(ops/sec, 네트워크 bytes, clients, memory, keyspace hit/miss).
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # ClickHouse 자체 지표(Kafka Engine 적재 행 수 등).
+  - job_name: clickhouse
+    static_configs:
+      - targets: ["clickhouse:9363"]
+        labels:
+          instance: clickhouse

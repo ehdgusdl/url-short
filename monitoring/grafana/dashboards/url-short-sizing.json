@@ -1,0 +1,674 @@
+{
+  "uid": "url-short-sizing",
+  "title": "url-shortener · cache-sizing",
+  "tags": [
+    "url-short"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "trend",
+      "title": "Cumulative view coverage by key percentile",
+      "description": "clickhouse · click_rank_snapshot · 전체 1,000,232 키 중 조회가 있었던 297,341 키의 클릭 1,534,507건",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT pct, coverage, marker FROM (\n  SELECT pct, CAST(coverage AS Nullable(Float64)) AS coverage, CAST(NULL AS Nullable(Float64)) AS marker FROM (\n    SELECT round(rank / 1000232 * 100, 1) AS pct,\n           round(max(cum) / (SELECT sum(clicks) FROM click_rank_snapshot) * 100, 2) AS coverage\n    FROM (SELECT rank, sum(clicks) OVER (ORDER BY rank ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum\n          FROM click_rank_snapshot)\n    GROUP BY pct\n    UNION ALL SELECT 100.0 AS pct, 100.0 AS coverage\n  )\n  UNION ALL SELECT 9.99, CAST(NULL AS Nullable(Float64)), CAST(0 AS Nullable(Float64))\n  UNION ALL SELECT 10.01, CAST(NULL AS Nullable(Float64)), CAST(100 AS Nullable(Float64))\n) ORDER BY pct",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "xField": "pct",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "key percentile"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "coverage"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "cumulative view coverage"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "marker"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "adopted p = 10%"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 4
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    12,
+                    8
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "type": "trend",
+      "title": "L1 hit ratio vs cache heap — admission sweep",
+      "description": "clickhouse · sweep_result · k6 zipf 900 RPS · 8 runs · 1M keys",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT cache_mb, hit_ratio, marker FROM (\n  SELECT cache_mb, CAST(hit_ratio AS Nullable(Float64)) AS hit_ratio, CAST(NULL AS Nullable(Float64)) AS marker FROM sweep_result\n  UNION ALL SELECT 102.3, CAST(NULL AS Nullable(Float64)), CAST(66 AS Nullable(Float64))\n  UNION ALL SELECT 102.5, CAST(NULL AS Nullable(Float64)), CAST(100 AS Nullable(Float64))\n) ORDER BY cache_mb",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "xField": "cache_mb",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 7,
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cache_mb"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "cache heap"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hit_ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "L1 hit ratio"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "marker"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "heap budget 102MB (10% of 1GB)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 4
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    12,
+                    8
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "min",
+                "value": 66
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "Marginal efficiency E(p) = ΔH / ΔM × 100  ·  %p per 100MB · θ=10",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT concat(toString(round(prev_p*100,2)), ' → ', toString(round(p*100,2)), '%') AS step,\n       round((hit_ratio - prev_hit) / (cache_mb - prev_mb) * 100, 1) AS E\nFROM (SELECT p, cache_mb, hit_ratio,\n             lagInFrame(p)         OVER (ORDER BY p) AS prev_p,\n             lagInFrame(cache_mb)  OVER (ORDER BY p) AS prev_mb,\n             lagInFrame(hit_ratio) OVER (ORDER BY p) AS prev_hit\n      FROM sweep_result)\nWHERE prev_p > 0 ORDER BY p",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {}
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "sweep summary · 힙 예산 102MB · θ=10",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT concat(toString(round(p*100,2)), '%') AS `p (admission ratio)`,\n       round(cache_mb, 1) AS `cache heap (MB)`,\n       round(hit_ratio, 1) AS `hit ratio (%)`,\n       if(prev_p = 0, NULL, round((hit_ratio - prev_hit) / (cache_mb - prev_mb) * 100, 1)) AS `E(step→p)`,\n       if(cache_mb <= 102.4, 'within budget', 'over budget') AS budget\nFROM (SELECT p, cache_mb, hit_ratio,\n             lagInFrame(p)         OVER (ORDER BY p) AS prev_p,\n             lagInFrame(cache_mb)  OVER (ORDER BY p) AS prev_mb,\n             lagInFrame(hit_ratio) OVER (ORDER BY p) AS prev_hit\n      FROM sweep_result) ORDER BY p",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "budget"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "within budget": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "over budget": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "E(step→p)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "R↑ · price to buy (10% → 20%)",
+      "description": "+55MB 써서 +4.2%p 얻는다",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT round((max(if(p=0.2, cache_mb, 0)) - max(if(p=0.1, cache_mb, 0)))\n       / (max(if(p=0.2, hit_ratio, 0)) - max(if(p=0.1, hit_ratio, 0))), 1) AS `R↑`\nFROM sweep_result WHERE p IN (0.1, 0.2)",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "adopted admission ratio p*",
+      "description": "100,023건 · 55MB · 82.1% hit",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT p * 100 AS `p*` FROM sweep_result WHERE p = 0.1",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "R↓ · price to sell (10% → 5%)",
+      "description": "−27MB 아끼고 −4.2%p 내준다",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "rawSql": "SELECT round((max(if(p=0.1, cache_mb, 0)) - max(if(p=0.05, cache_mb, 0)))\n       / (max(if(p=0.1, hit_ratio, 0)) - max(if(p=0.05, hit_ratio, 0))), 1) AS `R↓`\nFROM sweep_result WHERE p IN (0.05, 0.1)",
+          "format": 1,
+          "queryType": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "type": "text",
+      "title": "decision · two independent criteria",
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 37
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "- ✔ **힙 예산 102MB** (Xmx 1024MB의 10%) → 예산 안에 드는 가장 큰 p = **10%**\n- ✔ **한계 효율 θ=10** → 기준을 통과하는 마지막 구간 = **5 → 10%** (E=15.2)\n- ✘ p=20% → 110MB (예산 초과) 이고 E=7.7 (기준 미달)\n\n사는 값 13.0 = 파는 값 6.6 의 **2.0배** → p\\* = 10%\n\n*단위: MB / %p · sweep_result 8행 실측*"
+      }
+    }
+  ]
+}

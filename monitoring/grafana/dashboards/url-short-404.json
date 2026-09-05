@@ -1,0 +1,110 @@
+{
+  "uid": "url-short-404",
+  "title": "URL Shortener — 생성 직후 404 (Write-Through)",
+  "tags": ["url-short", "404", "write-through", "replication-lag", "benchmark"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 3,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Write-Through 활성화 (0/1)",
+      "description": "Write-Through 선입력 적용 여부(게이지). before 구간=OFF(0), after 구간=ON(1). 404 전환의 원인 스위치.",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "max(urlcache_prime_enabled{instance=\"app\"})", "refId": "A", "legendFormat": "write-through" } ],
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "mappings": [ { "type": "value", "options": { "0": { "text": "OFF", "color": "red" }, "1": { "text": "ON", "color": "green" } } } ], "color": { "mode": "thresholds" } } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "생성 직후 404율",
+      "description": "생성 응답 직후 조회의 404 비율(k6 카운터 기반). 트래픽이 흐르는 구간의 실시간 값이며, after 구간에서 0이어야 성공.",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "(sum(rate(k6_immediate_read_404_total_total[30s])) or vector(0)) / sum(rate(k6_immediate_read_total_total[30s]))", "refId": "A", "legendFormat": "404 rate" } ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "decimals": 3, "thresholds": { "mode": "absolute", "steps": [ { "value": null, "color": "green" }, { "value": 0.001, "color": "red" } ] }, "color": { "mode": "thresholds" } } }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "생성 직후 404율 (k6)",
+      "description": "핵심 지표. 생성 응답 수신 직후 요청한 GET의 404 비율(= 404 카운터 rate / 전체 카운터 rate). before(선입력 OFF)=Replication Lag 구간에 404, after(선입력 ON)=0. 트래픽이 없는 구간은 값이 표시되지 않는다(잔상 없음). 오른쪽 축의 write-through(0/1)가 전환점을 표시한다.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "(sum(rate(k6_immediate_read_404_total_total[30s])) or vector(0)) / sum(rate(k6_immediate_read_total_total[30s]))", "refId": "A", "legendFormat": "생성직후 404율" },
+        { "expr": "max(urlcache_prime_enabled{instance=\"app\"})", "refId": "B", "legendFormat": "write-through (0/1)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 25, "showPoints": "never", "lineWidth": 2, "spanNulls": false } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "생성직후 404율" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] },
+          { "matcher": { "id": "byName", "options": "write-through (0/1)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }, { "id": "custom.fillOpacity", "value": 0 }, { "id": "custom.lineStyle", "value": { "dash": [6, 6], "fill": "dash" } } ] }
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "L2 히트 vs Replica 조회 (QPS)",
+      "description": "404가 사라진 이유가 '진짜 선입력 덕분'인지 확인. after 진입 시 Replica 조회 QPS가 급하강하고 그만큼 L2 히트 QPS가 우상향하는 X교차가 나야 한다. (Replica 라인은 urlcache_db_reads{datasource=replica} — 캐시 미스 시 실제 Replica로 내려간 조회만 센다.)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(urlcache_hits_total{layer=\"l2\",instance=\"app\"}[30s]))", "refId": "A", "legendFormat": "L2 히트/s" },
+        { "expr": "sum(rate(urlcache_db_reads_total{datasource=\"replica\",instance=\"app\"}[30s]))", "refId": "B", "legendFormat": "Replica 조회/s" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "L2 히트/s" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } } ] },
+          { "matcher": { "id": "byName", "options": "Replica 조회/s" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ] }
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "POST /api/urls 응답시간 (p95/p99)",
+      "description": "Write-Through는 DB Insert 뒤 Redis 선입력 I/O가 한 번 더 붙는 구조. before/after의 p99가 겹치는 수평선이어야 '쓰기 경로에 지연을 주지 않았음(best-effort)'이 증명된다. 서버 히스토그램 기준(트래픽 없으면 표시 안 됨).",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{method=\"POST\",uri=\"/api/urls\",instance=\"app\"}[30s])))", "refId": "A", "legendFormat": "POST p95" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{method=\"POST\",uri=\"/api/urls\",instance=\"app\"}[30s])))", "refId": "B", "legendFormat": "POST p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } } }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Redis 메모리 & Eviction",
+      "description": "선입력 키는 prime-ttl(10s)로 만료된다 → 메모리가 우상향하지 않고, 키 개수가 10s 주기로 톱니치며, eviction은 0이어야 한다(오염이 통제됨). eviction이 튀면 TTL/maxmemory 재검토 신호.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "redis_memory_used_bytes", "refId": "A", "legendFormat": "used memory" },
+        { "expr": "redis_db_keys{db=\"db0\"}", "refId": "B", "legendFormat": "keys (db0)" },
+        { "expr": "increase(redis_evicted_keys_total[30s])", "refId": "C", "legendFormat": "evicted/30s" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "keys (db0)" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } } ] },
+          { "matcher": { "id": "byName", "options": "evicted/30s" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] }
+        ]
+      }
+    }
+  ],
+  "__inputs": [],
+  "__requires": []
+}

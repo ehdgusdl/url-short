@@ -1,0 +1,128 @@
+{
+  "uid": "url-short-refresh",
+  "title": "url-shortener · hotkey-refresh",
+  "tags": [
+    "url-short"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "L1 hit ratio during hot-key refresh",
+      "description": "full replace(전체 무효화 후 재적재) vs delta(바뀐 것만)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (rate(urlcache_hits_total{application=\"redirect\",layer=\"l1\"}[15s])) / clamp_min(sum by (instance) (rate(urlcache_admission_total{application=\"redirect\"}[15s])), 0.001)",
+          "legendFormat": "l1_hit_ratio ({{instance}})"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "min",
+            "mean",
+            "lastNotNull"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "l1_hit_ratio (redirect-2)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "l1_hit_ratio{refresh=\"full replace\"}"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "l1_hit_ratio (redirect-1)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "l1_hit_ratio{refresh=\"delta\"}"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "text",
+      "title": "refresh cost · KEEP 95,253 (95.6%) · ADD 4,336 · REMOVE 4,336",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "| metric | full replace | delta | change |\n|---|---:|---:|---:|\n| pub/sub 메시지 크기 | 973 KB | 67 KB | **-93%** |\n| 갱신당 L1 재적재 건수 | 99,589 | 4,336 | **-96%** |\n| 갱신 시점 Redis 조회 QPS | 206 | 98 | **-52%** |\n| L1 히트율 최저값 | 40.3% | 77.1% | **+36.8%p** |\n| 히트율 평균 (15분) | 64.6% | 79.3% | **+14.7%p** |\n\n*측정: redirect 2대에 nginx로 같은 트래픽(900 RPS, Zipf) · 4분 간격 갱신 3회 · full replace = 전체 무효화 후 재적재, delta = 바뀐 것만*"
+      }
+    }
+  ]
+}

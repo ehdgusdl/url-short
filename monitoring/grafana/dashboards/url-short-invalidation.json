@@ -1,0 +1,100 @@
+{
+  "uid": "url-short-invalidation",
+  "title": "URL 단축기 · 캐시 무효화 검증",
+  "tags": ["url-short", "cache", "invalidation"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "무효화 수렴률",
+      "description": "삭제된 키가 B에서 결국 404로 수렴한 비율. 전파 ON≈100%(수렴), OFF≈0%(L1에 Stale 지속) = 정확성 헤드라인. (ON도 전파 윈도우 동안 잠깐 Stale은 정상)",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "k6_converged_rate", "refId": "A", "legendFormat": "prop={{prop}}" } ],
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 0.99 } ] } } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "전파 지연 p95",
+      "description": "삭제 완료 → B 첫 404 까지. 폴 간격(기본 20ms)이 하한이라 절대값보다 'OFF의 무한 지속과 대비'가 요점.",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "max(k6_stale_window_ms_p95{prop=\"on\"})", "refId": "A", "legendFormat": "p95" } ],
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "무효화 정확성",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Stale 응답 수(초당)",
+      "description": "전파 ON 구간은 바닥(0), OFF 구간은 B의 L1 히트로 Stale이 지속돼 솟는다. 이 대비가 Pub/Sub 무효화의 효과.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (prop) (rate(k6_stale_reads_total[30s]))", "refId": "A", "legendFormat": "stale prop={{prop}}" },
+        { "expr": "sum by (prop) (rate(k6_db_lag_reads_total[30s]))", "refId": "B", "legendFormat": "db-lag prop={{prop}} (복제지연·캐시아님)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10, "stacking": { "mode": "none" } } } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "전파 지연 (p50/p95/p99)",
+      "description": "삭제 → B 첫 404 까지 걸린 시간의 p50/p95/p99.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "max(k6_stale_window_ms_p50{prop=\"on\"})", "refId": "A", "legendFormat": "p50" },
+        { "expr": "max(k6_stale_window_ms_p95{prop=\"on\"})", "refId": "B", "legendFormat": "p95" },
+        { "expr": "max(k6_stale_window_ms_p99{prop=\"on\"})", "refId": "C", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5 } } }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "전파 파이프라인",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "발행 vs 수신 (ops/s)",
+      "description": "발행(publisher)과 수신·적용(subscriber)의 rate. 전파 OFF 구간엔 app2의 수신이 발행을 못 따라가는 갭 = 미전파(유실 재현).",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(urlcache_invalidations_published_total[1m]))", "refId": "A", "legendFormat": "published (전체 발행)" },
+        { "expr": "sum by (instance) (rate(urlcache_invalidations_received_total[1m]))", "refId": "B", "legendFormat": "received {{instance}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Redis PUBLISH ops/s",
+      "description": "redis_exporter 기준. 삭제 부하에 비례해 PUBLISH가 즉각 반응하는지 확인(서사용). Exporter 버전에 따라 지표명이 다를 수 있음.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "rate(redis_commands_total{cmd=\"publish\"}[1m])", "refId": "A", "legendFormat": "PUBLISH ops/s" } ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    }
+  ]
+}
