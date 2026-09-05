@@ -1,6 +1,6 @@
 package com.example.urlshort.service;
 
-import com.example.urlshort.cache.LayeredUrlCache;
+import com.example.urlshort.cache.UrlCacheWriter;
 import com.example.urlshort.repository.UrlMappingRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,6 +14,7 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,7 +26,7 @@ class ExpiredUrlCleanerTest {
     UrlMappingRepository repository;
 
     @Mock
-    LayeredUrlCache cache;
+    UrlCacheWriter cache;
 
     @InjectMocks
     ExpiredUrlCleaner cleaner;
@@ -46,12 +47,23 @@ class ExpiredUrlCleanerTest {
     }
 
     @Test
-    @DisplayName("cleanup: 캐시 전체 무효화가 호출됨")
-    void cleanup_invalidates_cache() {
-        when(repository.deleteAllByExpiresAtBefore(any(Instant.class))).thenReturn(0L);
+    @DisplayName("cleanup: 지운 게 있으면 캐시 전체 무효화가 호출됨")
+    void cleanup_invalidates_cache_when_something_was_deleted() {
+        when(repository.deleteAllByExpiresAtBefore(any(Instant.class))).thenReturn(3L);
 
         cleaner.cleanup();
 
         verify(cache).invalidateAll();
+    }
+
+    @Test
+    @DisplayName("cleanup: 지운 게 없으면 무효화하지 않는다")
+    void cleanup_does_not_invalidate_when_nothing_was_deleted() {
+        // 0건에도 비우면 매 주기마다 전 인스턴스의 L1/L2가 통째로 날아간다.
+        when(repository.deleteAllByExpiresAtBefore(any(Instant.class))).thenReturn(0L);
+
+        cleaner.cleanup();
+
+        verify(cache, never()).invalidateAll();
     }
 }
