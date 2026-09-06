@@ -5,6 +5,7 @@ import com.example.urlshort.dto.CreateUrlRequest;
 import com.example.urlshort.dto.CreateUrlResponse;
 import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,11 +34,15 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
     private UrlMappingRepository repository;
 
     @Autowired
+    private UrlReadRepository readRepository;
+
+    @Autowired
     private UrlCacheWriter cache;
 
     @AfterEach
     void cleanUp() {
         repository.deleteAll();
+        readRepository.deleteAll();
         // 테스트 간 캐시(L2) 격리 — 잔존 캐시로 인한 Stale 결과 방지.
         cache.invalidateAll();
     }
@@ -55,6 +60,8 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
         assertThat(body.shortCode()).hasSize(7);
         assertThat(body.originalUrl()).isEqualTo("https://example.com/integration");
         assertThat(repository.findByShortCode(body.shortCode())).isPresent();
+        // 쓰기 모델과 읽기 모델 양쪽에 기록돼야 한다.
+        assertThat(readRepository.findById(body.shortCode())).isPresent();
     }
 
     @Test
@@ -83,6 +90,7 @@ class UrlEndToEndTest extends AbstractMySqlContainerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(repository.findByShortCode(shortCode)).isEmpty();
+        assertThat(readRepository.findById(shortCode)).isEmpty();
     }
 
     @Test

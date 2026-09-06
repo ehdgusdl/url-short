@@ -3,9 +3,11 @@ package com.example.urlshort.service;
 import com.example.urlshort.cache.UrlCacheWriter;
 import com.example.urlshort.config.UrlProperties;
 import com.example.urlshort.domain.UrlMapping;
+import com.example.urlshort.domain.UrlRead;
 import com.example.urlshort.dto.UrlView;
 import com.example.urlshort.id.SnowflakeIdGenerator;
 import com.example.urlshort.repository.UrlMappingRepository;
+import com.example.urlshort.repository.UrlReadRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,9 @@ class UrlServiceTest {
     UrlMappingRepository repository;
 
     @Mock
+    UrlReadRepository readRepository;
+
+    @Mock
     Base62Generator generator;
 
     @Mock
@@ -48,7 +53,7 @@ class UrlServiceTest {
     @BeforeEach
     void setUp() {
         UrlProperties props = new UrlProperties(7, "0 0 * * * *");
-        service = new UrlService(repository, generator, snowflake, props, cache);
+        service = new UrlService(repository, readRepository, generator, snowflake, props, cache);
     }
 
     @Test
@@ -66,6 +71,8 @@ class UrlServiceTest {
         assertThat(result.getId()).isEqualTo(1234567890L);
         verify(repository, times(1)).save(any(UrlMapping.class));
         verify(cache).prime(eq("aB3xK9p"), any(UrlView.class));
+        // 읽기 모델(url_read)에도 같이 기록해야 한다.
+        verify(readRepository, times(1)).save(any(UrlRead.class));
     }
 
     @Test
@@ -111,6 +118,7 @@ class UrlServiceTest {
                 .isInstanceOf(IllegalStateException.class);
 
         verify(repository, never()).save(any(UrlMapping.class));
+        verify(readRepository, never()).save(any(UrlRead.class));
         verify(generator, times(5)).generate(anyInt());
     }
 
@@ -122,6 +130,7 @@ class UrlServiceTest {
         boolean result = service.delete("abc");
 
         assertThat(result).isTrue();
+        verify(readRepository).deleteByShortCode("abc");
         verify(cache).invalidate("abc");
     }
 

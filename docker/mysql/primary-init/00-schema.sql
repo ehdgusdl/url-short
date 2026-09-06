@@ -9,3 +9,11 @@ CREATE TABLE IF NOT EXISTS url_mapping (
     PRIMARY KEY (id),
     UNIQUE KEY uk_url_mapping_short_code (short_code)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- CQRS 읽기 모델. 리다이렉트 조회에 필요한 최소 컬럼만 가진다.
+CREATE TABLE IF NOT EXISTS url_read (
+    short_code   VARCHAR(16)  NOT NULL,
+    original_url TEXT         NOT NULL,
+    expires_at   DATETIME(6)  NOT NULL,
+    PRIMARY KEY (short_code)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
