@@ -264,7 +264,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       # 로컬 검증용으로 짧게. 운영은 5분 주기면 충분하다.
-      # 힙 1GB의 10% = 107,374,182B. 엔트리 536B로 나누면 약 200,324건이 예산 상한이다.
+      # 힙 1GB의 10% = 107,374,182B. 엔트리 576B로 나누면 186,413건이 예산 상한이다.
       APP_HOTKEY_HEAP_BUDGET_BYTES: 107374182
       APP_HOTKEY_INITIAL_DELAY_MS: 15000
       APP_HOTKEY_INTERVAL_MS: 30000

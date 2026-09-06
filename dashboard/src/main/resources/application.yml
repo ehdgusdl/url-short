@@ -25,8 +25,10 @@ app:
     ratio: ${APP_HOTKEY_RATIO:0.10}
     # 예산이 정한 상한: 힙 1GB의 10%
     heap-budget-bytes: ${APP_HOTKEY_HEAP_BUDGET_BYTES:107374182}
-    # 엔트리 1건 실측 점유(키 + 값 + 캐시 구조 오버헤드)
-    bytes-per-entry: ${APP_HOTKEY_BYTES_PER_ENTRY:536}
+    # 엔트리 1건 실측 점유. jol 576B, 적재 전후 Full GC 힙 차이 569B, 힙 덤프 retained 593B.
+    # redirect의 CacheMetricsReporter.BYTES_PER_ENTRY와 같은 값이어야 한다.
+    # 실제보다 작게 잡으면 예산 상한이 예산을 넘긴다(536이면 200,324건 = 110MB > 예산 102MB).
+    bytes-per-entry: ${APP_HOTKEY_BYTES_PER_ENTRY:576}
     lookback-days: ${APP_HOTKEY_LOOKBACK_DAYS:6}
     # N번에 한 번은 전체 스냅샷을 보낸다. 증분만 계속 보내면 메시지를 놓친 인스턴스가 복구되지 못한다.
     snapshot-every: ${APP_HOTKEY_SNAPSHOT_EVERY:10}

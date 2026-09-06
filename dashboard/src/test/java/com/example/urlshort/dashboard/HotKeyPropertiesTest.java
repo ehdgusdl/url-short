@@ -2,14 +2,26 @@ package com.example.urlshort.dashboard;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ClassPathResource;
+
+import java.io.IOException;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("HotKeyProperties.topN 단위 테스트")
 class HotKeyPropertiesTest {
 
-    // 힙 예산 102MB / 엔트리 536B ≈ 190,000건이 예산 상한이다.
-    private final HotKeyProperties props = new HotKeyProperties(0.10, 107_374_182L, 536L, 6);
+    // 엔트리 1건 576B(jol 실측). 힙 예산 107,374,182B / 576B = 186,413건이 예산 상한이다.
+    private static final long BYTES_PER_ENTRY = 576L;
+    private static final long HEAP_BUDGET_BYTES = 107_374_182L;
+
+    private final HotKeyProperties props =
+            new HotKeyProperties(0.10, HEAP_BUDGET_BYTES, BYTES_PER_ENTRY, 6);
 
     @Test
     @DisplayName("키가 적으면 분포(상위 10%)가 상한을 정한다")
@@ -30,8 +42,28 @@ class HotKeyPropertiesTest {
     }
 
     @Test
-    @DisplayName("키가 아주 적어도 최소 1건은 담는다")
-    void never_returns_zero() {
-        assertThat(props.topN(1)).isEqualTo(1);
+    @DisplayName("예산이 잡은 상한은 실제 점유로 환산해도 예산을 넘지 않는다")
+    void budget_cap_stays_within_the_budget() {
+        // 엔트리 크기를 실제보다 작게 잡으면 여기서 예산을 넘긴다.
+        long occupied = (long) props.topN(100_000_000) * BYTES_PER_ENTRY;
+
+        assertThat(occupied).isLessThanOrEqualTo(HEAP_BUDGET_BYTES);
+    }
+
+    @Test
+    @DisplayName("기본 설정의 엔트리 크기는 실측값이다")
+    void shipped_default_matches_the_measured_entry_size() throws IOException {
+        // redirect의 CacheMetricsReporter.BYTES_PER_ENTRY와 어긋나면 예산 계산이 틀어진다.
+        assertThat(shippedDefaults().bytesPerEntry()).isEqualTo(BYTES_PER_ENTRY);
+        assertThat(shippedDefaults().heapBudgetBytes()).isEqualTo(HEAP_BUDGET_BYTES);
+    }
+
+    /** 실제로 배포되는 application.yml을 그대로 바인딩한다. */
+    private HotKeyProperties shippedDefaults() throws IOException {
+        List<PropertySource<?>> sources =
+                new YamlPropertySourceLoader().load("application.yml", new ClassPathResource("application.yml"));
+        StandardEnvironment env = new StandardEnvironment();
+        sources.forEach(env.getPropertySources()::addFirst);
+        return Binder.get(env).bind("app.hotkey", HotKeyProperties.class).get();
     }
 }
