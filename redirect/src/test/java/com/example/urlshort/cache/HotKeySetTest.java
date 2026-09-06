@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,15 +17,35 @@ class HotKeySetTest {
 
     @BeforeEach
     void setUp() {
-        hotKeys = new HotKeySet(new SimpleMeterRegistry());
+        hotKeys = new HotKeySet(Duration.ofMinutes(2), new SimpleMeterRegistry());
     }
 
     @Test
-    @DisplayName("목록을 아직 못 받았으면 전부 허용한다 (콜드 스타트에 L1이 죽지 않도록)")
+    @DisplayName("목록을 아직 못 받았으면 유예 시간 안에서는 전부 허용한다 (콜드 스타트에 L1이 죽지 않도록)")
     void admits_everything_before_first_snapshot() {
         assertThat(hotKeys.admits("anything")).isTrue();
         assertThat(hotKeys.version()).isEqualTo(-1);
         assertThat(hotKeys.size()).isZero();
+    }
+
+    @Test
+    @DisplayName("유예가 지나도 목록이 안 오면 L1 적재를 닫는다 (조건 없는 적재로 되돌아가면 안 된다)")
+    void closes_admission_when_the_grace_expires_without_a_list() {
+        // dashboard 가 죽거나 ClickHouse 집계가 아직이면 목록이 영영 비어 있다.
+        // 그동안 전부 허용하면 이 구조가 막으려던 힙 증가가 그대로 다시 일어난다.
+        HotKeySet noGrace = new HotKeySet(Duration.ZERO, new SimpleMeterRegistry());
+
+        assertThat(noGrace.admits("anything")).isFalse();
+    }
+
+    @Test
+    @DisplayName("유예가 지난 뒤라도 목록이 도착하면 그 목록대로 판정한다")
+    void resumes_once_a_list_arrives() {
+        HotKeySet noGrace = new HotKeySet(Duration.ZERO, new SimpleMeterRegistry());
+        noGrace.replace(1L, Set.of("hot"));
+
+        assertThat(noGrace.admits("hot")).isTrue();
+        assertThat(noGrace.admits("cold")).isFalse();
     }
 
     @Test

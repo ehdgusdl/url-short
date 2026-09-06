@@ -49,7 +49,7 @@ class LayeredUrlCacheResilienceTest {
         RedisTemplate<String, UrlView> l2 = Mockito.mock(RedisTemplate.class);
         Mockito.when(l2.opsForValue()).thenReturn(ops);
         return new LayeredUrlCache(l1, l2, strings, new SingleFlight(),
-                new HotKeySet(registry), Duration.ofHours(1), missTtl, true, registry);
+                new HotKeySet(Duration.ofMinutes(2), registry), Duration.ofHours(1), missTtl, true, registry);
     }
 
     @Test

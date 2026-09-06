@@ -49,7 +49,7 @@ class LayeredUrlCacheTombstoneTest {
 
         strings = Mockito.mock(StringRedisTemplate.class);
         cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(),
-                new HotKeySet(registry), Duration.ofHours(1), Duration.ZERO, true, registry);
+                new HotKeySet(Duration.ofMinutes(2), registry), Duration.ofHours(1), Duration.ZERO, true, registry);
     }
 
     @Test

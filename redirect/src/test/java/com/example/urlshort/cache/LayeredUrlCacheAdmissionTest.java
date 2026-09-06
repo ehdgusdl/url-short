@@ -34,7 +34,7 @@ class LayeredUrlCacheAdmissionTest {
     void setUp() {
         l1 = Caffeine.newBuilder().maximumSize(100).build();
         registry = new SimpleMeterRegistry();
-        hotKeys = new HotKeySet(registry);
+        hotKeys = new HotKeySet(Duration.ofMinutes(2), registry);
 
         RedisTemplate<String, UrlView> l2 = Mockito.mock(RedisTemplate.class);
         ValueOperations<String, UrlView> ops = Mockito.mock(ValueOperations.class);

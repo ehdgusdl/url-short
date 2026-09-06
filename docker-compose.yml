@@ -169,8 +169,10 @@ services:
       SPRING_DATA_REDIS_HOST: toxiproxy
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # 100만 키를 전부 담는 A안(전량 적재)을 재현할 수 있어야 한다.
-      APP_CACHE_LOCAL_MAX_SIZE: 1200000
+      # 100만 키를 전부 담는 A안(전량 적재) 재현용. 실제 상한은 이 건수와 힙 예산 중 작은 쪽이라,
+      # 재현할 때는 APP_CACHE_HEAP_BUDGET_BYTES 도 함께 올려야 한다. 기본값(102MB)이면 18만 건에서 잘린다.
+      APP_CACHE_LOCAL_MAX_SIZE: ${APP_CACHE_LOCAL_MAX_SIZE:-1200000}
+      APP_CACHE_HEAP_BUDGET_BYTES: ${APP_CACHE_HEAP_BUDGET_BYTES:-107374182}
       APP_CACHE_REPORT_INTERVAL_MS: ${APP_CACHE_REPORT_INTERVAL_MS:-30000}
       # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
       APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
@@ -221,8 +223,10 @@ services:
       SPRING_DATA_REDIS_HOST: toxiproxy
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # 100만 키를 전부 담는 A안(전량 적재)을 재현할 수 있어야 한다.
-      APP_CACHE_LOCAL_MAX_SIZE: 1200000
+      # 100만 키를 전부 담는 A안(전량 적재) 재현용. 실제 상한은 이 건수와 힙 예산 중 작은 쪽이라,
+      # 재현할 때는 APP_CACHE_HEAP_BUDGET_BYTES 도 함께 올려야 한다. 기본값(102MB)이면 18만 건에서 잘린다.
+      APP_CACHE_LOCAL_MAX_SIZE: ${APP_CACHE_LOCAL_MAX_SIZE:-1200000}
+      APP_CACHE_HEAP_BUDGET_BYTES: ${APP_CACHE_HEAP_BUDGET_BYTES:-107374182}
       # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
       APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
       # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.

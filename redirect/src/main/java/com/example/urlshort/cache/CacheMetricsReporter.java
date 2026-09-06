@@ -22,21 +22,21 @@ public class CacheMetricsReporter {
 
     private static final Logger log = LoggerFactory.getLogger(CacheMetricsReporter.class);
 
-    /** 엔트리 1건이 차지하는 바이트. jol 실측 576B, 힙 실측 569B. */
-    private static final long BYTES_PER_ENTRY = 576;
-
     private final LayeredUrlCache cache;
     private final HotKeySet hotKeys;
     private final MeterRegistry registry;
     private final double warnThreshold;
+    private final long bytesPerEntry;
     private final MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
 
     public CacheMetricsReporter(LayeredUrlCache cache, HotKeySet hotKeys, MeterRegistry registry,
-                                @Value("${app.cache.headroom-warn-ratio:0.70}") double warnThreshold) {
+                                @Value("${app.cache.headroom-warn-ratio:0.70}") double warnThreshold,
+                                @Value("${app.cache.bytes-per-entry:576}") long bytesPerEntry) {
         this.cache = cache;
         this.hotKeys = hotKeys;
         this.registry = registry;
         this.warnThreshold = warnThreshold;
+        this.bytesPerEntry = bytesPerEntry;
     }
 
     @Scheduled(fixedDelayString = "${app.cache.report-interval-ms:30000}")
@@ -48,11 +48,11 @@ public class CacheMetricsReporter {
 
         if (usage >= warnThreshold) {
             log.warn("localCache entries={} retained={}MB heap_usage={}% headroom={}MB admission={}",
-                    entries, entries * BYTES_PER_ENTRY / 1048576, Math.round(usage * 100),
+                    entries, entries * bytesPerEntry / 1048576, Math.round(usage * 100),
                     (max - used) / 1048576, hotKeys.isEnabled() ? hotKeys.size() : "off");
         } else {
             log.info("localCache entries={} retained={}MB heap_usage={}% headroom={}MB admission={}",
-                    entries, entries * BYTES_PER_ENTRY / 1048576, Math.round(usage * 100),
+                    entries, entries * bytesPerEntry / 1048576, Math.round(usage * 100),
                     (max - used) / 1048576, hotKeys.isEnabled() ? hotKeys.size() : "off");
         }
         log.info("l1_hit_ratio={} l2_lookup_total={} db_loads={}",

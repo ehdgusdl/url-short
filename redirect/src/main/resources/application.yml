@@ -40,6 +40,13 @@ app:
   cache:
     l1-enabled: ${APP_CACHE_L1_ENABLED:true}
     local-max-size: ${APP_CACHE_LOCAL_MAX_SIZE:10000}
+    # L1 이 써도 되는 힙. 건수 상한과 이 예산 중 작은 쪽이 실제 상한이 된다.
+    # 기본값은 Xmx 1024MB 의 10%. dashboard 의 app.hotkey.heap-budget-bytes 와 같은 값이어야 한다.
+    heap-budget-bytes: ${APP_CACHE_HEAP_BUDGET_BYTES:107374182}
+    # 엔트리 1건 실측 점유. jol 576B, 적재 전후 Full GC 힙 차이 569B, 힙 덤프 retained 593B.
+    bytes-per-entry: ${APP_CACHE_BYTES_PER_ENTRY:576}
+    # 핫키 목록을 한 번도 못 받았을 때 전부 허용할 시간. 지나면 L1 적재를 닫는다.
+    hotkey-grace: ${APP_CACHE_HOTKEY_GRACE:2m}
     local-ttl: ${APP_CACHE_LOCAL_TTL:5m}
     l2-ttl: ${APP_CACHE_L2_TTL:1h}
     # 없는 코드를 짧게 기억한다. 없는 코드는 핫키가 아니라 L1을 건너뛰고 L2에도 없어서
