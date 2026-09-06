@@ -23,6 +23,17 @@ public final class CacheChannels {
      */
     public static final String TOMBSTONE_PREFIX = "urlgone:";
 
+    /**
+     * 없는 코드로 확인된 구간을 표시하는 음성 캐시 키 접두사.
+     *
+     * <p>없는 코드는 핫키 목록에 없으니 L1을 건너뛰고, L2에도 값이 없으니 매 요청이 그대로 Replica로
+     * 내려간다. 무작위 코드를 훑는 트래픽이 캐시를 하나도 거치지 않고 DB에 도달한다는 뜻이다.
+     * 미스도 짧게 기억해 두 계층 중 하나에서 흡수한다. 생성 시 {@link #KEY_PREFIX} 선입력과 함께 지운다.
+     *
+     * <p>{@link #KEY_PREFIX} 아래에 두면 안 되는 이유는 {@link #TOMBSTONE_PREFIX}와 같다.
+     */
+    public static final String MISS_PREFIX = "urlmiss:";
+
     /** 캐시 무효화 메시지 채널. 본문은 shortCode 또는 {@link #INVALIDATE_ALL}. */
     public static final String INVALIDATION_CHANNEL = "url-cache:invalidation";
 

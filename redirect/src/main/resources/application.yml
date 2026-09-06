@@ -42,6 +42,9 @@ app:
     local-max-size: ${APP_CACHE_LOCAL_MAX_SIZE:10000}
     local-ttl: ${APP_CACHE_LOCAL_TTL:5m}
     l2-ttl: ${APP_CACHE_L2_TTL:1h}
+    # 없는 코드를 짧게 기억한다. 없는 코드는 핫키가 아니라 L1을 건너뛰고 L2에도 없어서
+    # 매 요청이 그대로 Replica로 내려간다. 0으로 두면 음성 캐시를 끈다.
+    miss-ttl: ${APP_CACHE_MISS_TTL:30s}
   kafka:
     click-topic: ${APP_KAFKA_CLICK_TOPIC:events}
     click-partitions: ${APP_KAFKA_CLICK_PARTITIONS:3}

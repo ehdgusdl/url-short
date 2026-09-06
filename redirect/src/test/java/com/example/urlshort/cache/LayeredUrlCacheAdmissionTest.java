@@ -45,7 +45,7 @@ class LayeredUrlCacheAdmissionTest {
         Mockito.when(strings.hasKey(Mockito.anyString())).thenReturn(false); // 묘비 없음
 
         cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(), hotKeys,
-                Duration.ofHours(1), true, registry);
+                Duration.ofHours(1), Duration.ZERO, true, registry);
     }
 
     private double admission(String result) {

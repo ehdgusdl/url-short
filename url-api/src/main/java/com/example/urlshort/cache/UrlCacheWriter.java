@@ -61,6 +61,8 @@ public class UrlCacheWriter {
      * 생성 직후 조회를 캐시 히트로 흡수하기 위한 L2 선입력. TTL은 짧게 잡아 미조회 키의 캐시 오염을 막는다.
      */
     public void prime(String shortCode, UrlView view) {
+        // 방금 만든 코드다. 음성 캐시가 남아 있으면 선입력을 켜든 끄든 그 TTL 동안 404가 나간다.
+        publisher.delete(CacheChannels.MISS_PREFIX + shortCode);
         if (!primeEnabled.get()) {
             return;
         }
