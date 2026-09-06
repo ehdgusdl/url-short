@@ -38,7 +38,7 @@ class UrlCacheWriterTest {
     void invalidate_writes_tombstone() {
         writer.invalidate("aB3xK9p");
 
-        Mockito.verify(stringOps).set("url:gone:aB3xK9p", "1", Duration.ofSeconds(10));
+        Mockito.verify(stringOps).set("urlgone:aB3xK9p", "1", Duration.ofSeconds(10));
         Mockito.verify(l2).delete("url:aB3xK9p");
         Mockito.verify(publisher).convertAndSend(CacheChannels.INVALIDATION_CHANNEL, "aB3xK9p");
     }

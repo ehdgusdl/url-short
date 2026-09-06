@@ -4,12 +4,15 @@ import com.example.urlshort.dto.UrlView;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -20,6 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Component
 public class UrlCacheWriter {
+
+    /** SCAN 한 번에 훑고 지울 키 수. 너무 크면 KEYS와 다를 게 없고, 너무 작으면 왕복만 는다. */
+    private static final int SCAN_BATCH = 500;
 
     private final RedisTemplate<String, UrlView> l2;
     private final StringRedisTemplate publisher;
@@ -74,11 +80,27 @@ public class UrlCacheWriter {
         invPublishedSingle.increment();
     }
 
-    /** 전체 무효화: 만료 정리 등 대량 변경 시 사용. */
+    /**
+     * 전체 무효화: 만료 정리 등 대량 변경 시 사용.
+     *
+     * <p>KEYS 는 단일 스레드 Redis를 키스페이스 크기만큼 붙잡는다. 100만 키 규모에서는
+     * 그 사이 모든 redirect의 L2 조회가 멈추므로 SCAN으로 나눠 훑고 나눠 지운다.
+     */
     public void invalidateAll() {
-        Set<String> keys = l2.keys(CacheChannels.KEY_PREFIX + "*");
-        if (keys != null && !keys.isEmpty()) {
-            l2.delete(keys);
+        ScanOptions options = ScanOptions.scanOptions()
+                .match(CacheChannels.KEY_PREFIX + "*").count(SCAN_BATCH).build();
+        List<String> batch = new ArrayList<>(SCAN_BATCH);
+        try (Cursor<String> cursor = l2.scan(options)) {
+            while (cursor.hasNext()) {
+                batch.add(cursor.next());
+                if (batch.size() >= SCAN_BATCH) {
+                    l2.delete(batch);
+                    batch.clear();
+                }
+            }
+        }
+        if (!batch.isEmpty()) {
+            l2.delete(batch);
         }
         publisher.convertAndSend(CacheChannels.INVALIDATION_CHANNEL, CacheChannels.INVALIDATE_ALL);
         invPublishedAll.increment();
