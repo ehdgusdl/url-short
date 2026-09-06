@@ -71,4 +71,60 @@ class SingleFlightTest {
             Thread.currentThread().interrupt();
         }
     }
+
+    @Test
+    @DisplayName("leader가 Error로 죽어도 follower가 영원히 대기하지 않는다")
+    void follower_is_released_when_the_leader_dies_with_an_error() throws Exception {
+        // RuntimeException 만 잡으면 Error 일 때 future 가 완료되지 않은 채 버려지고,
+        // join() 에는 타임아웃이 없어 대기 중인 워커가 그대로 소진된다.
+        SingleFlight singleFlight = new SingleFlight();
+        CountDownLatch leaderInside = new CountDownLatch(1);
+        CountDownLatch releaseLeader = new CountDownLatch(1);
+
+        Thread leader = new Thread(() -> {
+            try {
+                singleFlight.execute("k", () -> {
+                    leaderInside.countDown();
+                    await(releaseLeader);
+                    throw new StackOverflowError("boom");
+                });
+            } catch (Throwable ignored) {
+                // leader 는 죽는 게 정상이다
+            }
+        });
+        leader.start();
+        assertThat(leaderInside.await(2, TimeUnit.SECONDS)).isTrue();
+
+        CountDownLatch followerDone = new CountDownLatch(1);
+        Thread follower = new Thread(() -> {
+            try {
+                singleFlight.execute("k", () -> "never");
+            } catch (Throwable ignored) {
+                // leader 의 예외가 그대로 전파되는 것도 정상이다
+            } finally {
+                followerDone.countDown();
+            }
+        });
+        follower.start();
+        // follower 가 실제로 leader 의 결과를 기다리는 상태가 될 때까지 기다린다.
+        // 그 전에 leader 를 풀면 follower 가 스스로 leader 가 되어 아무것도 검증하지 못한다.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (follower.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(follower.getState()).isEqualTo(Thread.State.WAITING);
+
+        releaseLeader.countDown();
+
+        assertThat(followerDone.await(3, TimeUnit.SECONDS)).isTrue();
+        leader.join(1000);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }

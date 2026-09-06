@@ -32,9 +32,11 @@ public class SingleFlight {
             T result = loader.get();
             mine.complete(result);
             return result;
-        } catch (RuntimeException e) {
-            mine.completeExceptionally(e);
-            throw e;
+        } catch (Throwable t) {
+            // RuntimeException 만 잡으면 Error(OOM 등)일 때 mine 이 완료되지 않은 채 버려진다.
+            // running.join() 에 걸린 follower 들은 타임아웃도 없어 영원히 깨어나지 않는다.
+            mine.completeExceptionally(t);
+            throw t;
         } finally {
             inFlight.remove(key, mine);
         }
