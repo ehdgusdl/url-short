@@ -83,9 +83,12 @@ public class UrlService {
         DataSourceContextHolder.set(DataSourceType.PRIMARY);
         try {
             long removed = repository.deleteByShortCode(shortCode);
-            // 삭제 즉시 전 redirect 인스턴스 캐시 무효화(L2 + Pub/Sub) + 묘비 표시.
-            // 묘비는 복제 지연 구간에 Replica의 옛 행이 캐시로 되살아나는 것을 막는다.
-            cache.invalidate(shortCode);
+            if (removed > 0) {
+                // 삭제 즉시 전 redirect 인스턴스 캐시 무효화(L2 + Pub/Sub) + 묘비 표시.
+                // 묘비는 복제 지연 구간에 Replica의 옛 행이 캐시로 되살아나는 것을 막는다.
+                // 지운 게 없는데 묘비를 쓰면 존재하지도 않는 코드로 Redis 키가 늘어난다.
+                cache.invalidate(shortCode);
+            }
             return removed > 0;
         } finally {
             DataSourceContextHolder.clear();

@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -125,14 +126,15 @@ class UrlServiceTest {
     }
 
     @Test
-    @DisplayName("delete_returns_false_when_absent: 없으면 false, 그래도 캐시는 무효화")
+    @DisplayName("delete_returns_false_when_absent: 없으면 false, 무효화도 하지 않는다")
     void delete_returns_false_when_absent() {
+        // 지운 게 없는데 묘비를 쓰면 존재하지 않는 코드로 Redis 키가 요청 수만큼 늘어난다.
         when(repository.deleteByShortCode("none")).thenReturn(0L);
 
         boolean result = service.delete("none");
 
         assertThat(result).isFalse();
-        verify(cache).invalidate("none");
+        verify(cache, never()).invalidate(anyString());
     }
 
 }
