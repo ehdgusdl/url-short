@@ -267,11 +267,11 @@ services:
       APP_CLICKHOUSE_PASSWORD: urlshort
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      # 로컬 검증용으로 짧게. 운영은 5분 주기면 충분하다.
       # 힙 1GB의 10% = 107,374,182B. 엔트리 576B로 나누면 186,413건이 예산 상한이다.
       APP_HOTKEY_HEAP_BUDGET_BYTES: 107374182
       APP_HOTKEY_INITIAL_DELAY_MS: 15000
-      APP_HOTKEY_INTERVAL_MS: 30000
+      # 운영 기본은 하루 1회(86400000). 로컬에서 갱신을 눈으로 보려고 짧게 덮어쓴다.
+      APP_HOTKEY_INTERVAL_MS: ${APP_HOTKEY_INTERVAL_MS:-30000}
       # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
       JAVA_OPTS: >-
         -Dcom.sun.management.jmxremote

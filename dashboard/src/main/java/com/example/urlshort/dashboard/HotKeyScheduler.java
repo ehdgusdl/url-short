@@ -16,6 +16,9 @@ import java.util.UUID;
  *
  * <p>핫키는 매 요청마다 바뀌지 않는다. 요청 경로에서 랭킹을 계산하는 대신 주기적으로 쿼리 한 방이면 충분하다.
  *
+ * <p>주기는 하루 1회다. 랭킹이 최근 7일 누적이라 하루 안에 순위가 크게 뒤집히지 않고,
+ * 명단이 낡아도 정합성은 안 깨진다. 빠진 키는 L1 을 건너뛰고 L2 로 갈 뿐이라 느려지지 틀리지 않는다.
+ *
  * <p>발행은 한 인스턴스만 한다. {@link HotKeyPublisher}가 직전 목록과 버전을 프로세스 안에 들고
  * 증분을 만들기 때문이다. dashboard가 두 대면 각자 자기 기준으로 증분을 만들어 보내고, 받는 쪽은
  * baseVersion이 안 맞아 매번 전체 스냅샷을 다시 읽는다. 목록이 깨지진 않지만 증분의 이득이 사라진다.
@@ -39,13 +42,15 @@ public class HotKeyScheduler {
 
     public HotKeyScheduler(ClickStatsRepository repository, HotKeyPublisher publisher,
                            HotKeyProperties props, StringRedisTemplate redis,
-                           @Value("${APP_HOTKEY_INTERVAL_MS:300000}") long intervalMs) {
+                           @Value("${APP_HOTKEY_INTERVAL_MS:86400000}") long intervalMs) {
         this.repository = repository;
         this.publisher = publisher;
         this.props = props;
         this.redis = redis;
-        // 한 주기를 놓쳐도 리더가 유지되도록 주기의 2.5배. 죽으면 그 시간 안에 다른 인스턴스가 가져간다.
-        this.leaseTtl = Duration.ofMillis(Math.max(1000L, intervalMs * 5 / 2));
+        // 임차는 주기보다 길어야 한다. 짧으면 주기 사이에 만료돼 매번 다른 인스턴스가 리더가 되고,
+        // 각자 자기 lastKeys 로 증분을 만들어 리더를 두는 의미가 없어진다.
+        // 반대로 너무 길면 리더가 죽었을 때 그만큼 발행이 멈춘다. 주기의 1.5배로 잡는다.
+        this.leaseTtl = Duration.ofMillis(Math.max(1000L, intervalMs * 3 / 2));
     }
 
     /**
@@ -70,7 +75,7 @@ public class HotKeyScheduler {
     }
 
     @Scheduled(initialDelayString = "${APP_HOTKEY_INITIAL_DELAY_MS:20000}",
-            fixedDelayString = "${APP_HOTKEY_INTERVAL_MS:300000}")
+            fixedDelayString = "${APP_HOTKEY_INTERVAL_MS:86400000}")
     public void refresh() {
         if (!isPublisher()) {
             log.debug("not the hot key publisher, skipping this cycle");
