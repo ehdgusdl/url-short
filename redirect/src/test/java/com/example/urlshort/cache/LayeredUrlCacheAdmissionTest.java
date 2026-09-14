@@ -84,4 +84,18 @@ class LayeredUrlCacheAdmissionTest {
         assertThat(admission("rejected")).isEqualTo(1.0);
         assertThat(admission("admitted")).isZero();
     }
+
+    @Test
+    @DisplayName("핫키 목록에서 빠진 키는 L1에서 지운다 (조회에 안 쓰이는데 TTL까지 자리를 차지하지 않게)")
+    void evicts_keys_dropped_from_the_hot_list() {
+        hotKeys.replace(1, Set.of("a", "b"));
+        cache.get("a", () -> Optional.of(view));
+        cache.get("b", () -> Optional.of(view));
+
+        hotKeys.applyDelta(2, 1, Set.of("c"), Set.of("a"));
+        cache.evictNonHotKeys();
+
+        assertThat(l1.getIfPresent("a")).isNull();
+        assertThat(l1.getIfPresent("b")).isNotNull();
+    }
 }

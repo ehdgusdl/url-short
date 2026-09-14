@@ -29,6 +29,7 @@ class HotKeyListenerTest {
     private HotKeySet hotKeys;
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
+    private LayeredUrlCache cache;
     private HotKeyListener listener;
     private SimpleMeterRegistry registry;
 
@@ -40,7 +41,8 @@ class HotKeyListenerTest {
         redis = Mockito.mock(StringRedisTemplate.class);
         ops = Mockito.mock(ValueOperations.class);
         Mockito.when(redis.opsForValue()).thenReturn(ops);
-        listener = new HotKeyListener(hotKeys, redis, registry);
+        cache = Mockito.mock(LayeredUrlCache.class);
+        listener = new HotKeyListener(hotKeys, cache, redis, registry);
     }
 
     private void receive(String json) {
@@ -75,6 +77,15 @@ class HotKeyListenerTest {
         assertThat(hotKeys.admits("c")).isTrue();
         assertThat(hotKeys.admits("a")).isFalse();
         assertThat(hotKeys.admits("b")).isTrue();
+    }
+
+    @Test
+    @DisplayName("목록을 적용하면 빠진 키를 L1에서 지우고, 건너뛰면 건드리지 않는다")
+    void evicts_dropped_keys_only_when_applied() {
+        receive("{\"type\":\"SNAPSHOT\",\"version\":100,\"keys\":[\"a\",\"b\"]}");
+        receive("{\"type\":\"SNAPSHOT\",\"version\":50,\"keys\":[\"old\"]}");   // 오래된 버전이라 건너뜀
+
+        Mockito.verify(cache, Mockito.times(1)).evictNonHotKeys();
     }
 
     @Test

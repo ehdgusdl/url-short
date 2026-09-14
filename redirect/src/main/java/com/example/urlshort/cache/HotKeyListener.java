@@ -38,14 +38,16 @@ public class HotKeyListener implements MessageListener {
     private static final Logger log = LoggerFactory.getLogger(HotKeyListener.class);
 
     private final HotKeySet hotKeys;
+    private final LayeredUrlCache cache;
     private final ObjectMapper mapper = new ObjectMapper();
     private final Counter applied;
     private final Counter skipped;
 
     private final StringRedisTemplate redis;
 
-    public HotKeyListener(HotKeySet hotKeys, StringRedisTemplate redis, MeterRegistry registry) {
+    public HotKeyListener(HotKeySet hotKeys, LayeredUrlCache cache, StringRedisTemplate redis, MeterRegistry registry) {
         this.hotKeys = hotKeys;
+        this.cache = cache;
         this.redis = redis;
         this.applied = Counter.builder("urlcache.hotkeys.messages").tag("result", "applied").register(registry);
         this.skipped = Counter.builder("urlcache.hotkeys.messages").tag("result", "skipped").register(registry);
@@ -109,6 +111,10 @@ public class HotKeyListener implements MessageListener {
                 Set<String> keys = toSet(root.path("keys"));
                 ok = hotKeys.replace(version, keys);
                 log.info("hot key snapshot {}: version={} size={}", ok ? "applied" : "skipped", version, keys.size());
+            }
+            if (ok) {
+                // 목록에서 빠진 키는 L1에서도 지운다. 새로 들어온 키는 첫 조회 때 담긴다.
+                cache.evictNonHotKeys();
             }
             (ok ? applied : skipped).increment();
         } catch (Exception e) {

@@ -305,6 +305,14 @@ public class LayeredUrlCache {
         invReceivedAll.increment();
     }
 
+    /**
+     * 핫키 목록에서 빠진 키를 L1에서 지운다. 빠진 키는 조회에 쓰이지 않는데 TTL까지 자리만 차지한다.
+     * 목록 갱신이 하루 1회라 L1 전체(예산 상한 약 18만 건)를 한 번 훑는 비용은 무시할 수준이다.
+     */
+    public void evictNonHotKeys() {
+        l1.asMap().keySet().removeIf(key -> !hotKeys.admits(key));
+    }
+
     /** 현재 L1 엔트리 수(검증·대시보드용). */
     public long localSize() {
         return l1.estimatedSize();
