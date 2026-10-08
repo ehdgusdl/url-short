@@ -166,9 +166,17 @@ k6 run -e PROP=on k6/invalidation-verify.js
 결과에 계단이 생기지 않는다.
 
 ```bash
+# 대조군(전량 적재)은 L1 TTL 을 늘려야 100만 건이 쌓이기 전에 만료되지 않는다.
+docker compose -f docker-compose.yml -f docker-compose.experiment.yml up -d
 k6 run -e MODE=all       k6/hotkey-admission.js   # 대조군: 전량 적재
+
+# 실험군은 운영값(L1 TTL 5m) 그대로 둔다. 측정 전에 오버라이드 없이 다시 올린다.
+docker compose up -d
 k6 run -e MODE=admission k6/hotkey-admission.js   # 실험군: 상위 10%만 적재
 ```
+
+L1 TTL 기본값은 운영값과 같은 5분이다. 2시간은 `docker-compose.experiment.yml` 로 얹을 때만 적용된다.
+TTL 이 만료돼도 핫키는 다음 조회 때 L2 에서 다시 담기므로(`LayeredUrlCache` L2 히트 경로) admission 효과는 유지된다.
 
 메모리 차이는 Grafana `url-short · 핫키 admission` 대시보드의 JVM 힙 패널에서 본다.
 런타임 토글도 가능하다.
