@@ -3,6 +3,9 @@ package com.example.urlshort.config;
 import com.example.urlshort.dto.UrlView;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,5 +44,30 @@ public class CacheConfig {
                 .maximumSize(effective)
                 .expireAfterWrite(ttl)
                 .build();
+    }
+
+    /**
+     * L2(Redis) 호출 차단기. 커맨드 타임아웃만 있으면 장애 내내 L1 미스마다 타임아웃만큼 기다린다.
+     * 최근 50회 중 절반이 실패하면 열고, 5초 뒤 5회만 시험해 닫을지 정한다.
+     * 느린 호출 기준은 두지 않는다. 커맨드 타임아웃(100ms)이 느린 Redis를 이미 실패로 바꾸고,
+     * 앱 쪽에서 재는 시간에는 CPU 포화·GC 정지가 섞여 Redis가 멀쩡해도 차단기가 열릴 수 있다.
+     */
+    @Bean
+    public CircuitBreaker l2CircuitBreaker(MeterRegistry registry) {
+        CircuitBreaker breaker = CircuitBreaker.of("l2", CircuitBreakerConfig.custom()
+                .slidingWindowSize(50)
+                .minimumNumberOfCalls(20)
+                .failureRateThreshold(50)
+                .waitDurationInOpenState(Duration.ofSeconds(5))
+                .permittedNumberOfCallsInHalfOpenState(5)
+                .build());
+        // 상태 전이만 남긴다. 0=CLOSED, 1=OPEN, 2=HALF_OPEN
+        breaker.getEventPublisher().onStateTransition(e -> log.warn("L2 circuit breaker {}", e.getStateTransition()));
+        registry.gauge("urlcache.l2.breaker.state", breaker, b -> switch (b.getState()) {
+            case OPEN, FORCED_OPEN -> 1.0;
+            case HALF_OPEN -> 2.0;
+            default -> 0.0;
+        });
+        return breaker;
     }
 }

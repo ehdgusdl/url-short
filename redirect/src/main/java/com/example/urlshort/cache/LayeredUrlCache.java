@@ -2,6 +2,7 @@ package com.example.urlshort.cache;
 
 import com.example.urlshort.dto.UrlView;
 import com.github.benmanes.caffeine.cache.Cache;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -37,6 +38,7 @@ public class LayeredUrlCache {
     private final StringRedisTemplate strings;
     private final SingleFlight singleFlight;
     private final HotKeySet hotKeys;
+    private final CircuitBreaker l2Breaker;
     private final java.time.Duration l2Ttl;
     private final java.time.Duration missTtl;
 
@@ -70,6 +72,7 @@ public class LayeredUrlCache {
     private final Counter l1Rejected;   // 핫키가 아니라 L1을 건너뛴 횟수
     private final Counter invReceivedSingle;
     private final Counter invReceivedAll;
+    private final Counter invResubscribed; // 구독 재연결로 L1을 비운 횟수
     private final Counter tombstoned;   // 복제 지연 구간이라 되살리지 않고 버린 로더 결과
     private final Counter negativeHits; // 음성 캐시로 DB까지 안 내려간 횟수
     private final Counter l2Errors;     // L2 조회/적재 실패(로더로 흘림)
@@ -79,6 +82,7 @@ public class LayeredUrlCache {
                            StringRedisTemplate strings,
                            SingleFlight singleFlight,
                            HotKeySet hotKeys,
+                           CircuitBreaker l2Breaker,
                            @Value("${app.cache.l2-ttl:1h}") java.time.Duration l2Ttl,
                            @Value("${app.cache.miss-ttl:30s}") java.time.Duration missTtl,
                            @Value("${app.cache.l1-enabled:true}") boolean l1Enabled,
@@ -88,6 +92,7 @@ public class LayeredUrlCache {
         this.strings = strings;
         this.singleFlight = singleFlight;
         this.hotKeys = hotKeys;
+        this.l2Breaker = l2Breaker;
         this.l2Ttl = l2Ttl;
         this.missTtl = missTtl;
         this.l1Enabled = new AtomicBoolean(l1Enabled);
@@ -101,6 +106,7 @@ public class LayeredUrlCache {
         this.l1Rejected = Counter.builder("urlcache.admission").tag("result", "rejected").register(registry);
         this.invReceivedSingle = Counter.builder("urlcache.invalidations.received").tag("scope", "single").register(registry);
         this.invReceivedAll = Counter.builder("urlcache.invalidations.received").tag("scope", "all").register(registry);
+        this.invResubscribed = Counter.builder("urlcache.invalidations.received").tag("scope", "resubscribe").register(registry);
         this.tombstoned = Counter.builder("urlcache.tombstoned").register(registry);
         this.negativeHits = Counter.builder("urlcache.hits").tag("layer", "negative").register(registry);
         this.l2Errors = Counter.builder("urlcache.l2.errors").register(registry);
@@ -181,10 +187,13 @@ public class LayeredUrlCache {
      *
      * <p>여기서 예외를 그대로 올리면 L1에 없는 모든 키가 500이 된다. MySQL이 멀쩡하고 로더가
      * 답할 수 있는데도다. 게다가 L1 히트는 정상 응답하므로 장애가 아니라 "에러율 절반"으로 보인다.
+     *
+     * <p>Redis 호출은 모두 {@code l2Breaker}를 거친다. 느린 Redis는 예외 대신 타임아웃만큼 스레드를 붙잡으므로,
+     * 실패가 쌓이면 차단기가 열려 Redis를 건너뛰고 바로 로더로 간다(열림 상태의 거절도 같은 catch로 온다).
      */
     private UrlView readL2(String shortCode) {
         try {
-            UrlView view = l2.opsForValue().get(CacheChannels.KEY_PREFIX + shortCode);
+            UrlView view = l2Breaker.executeSupplier(() -> l2.opsForValue().get(CacheChannels.KEY_PREFIX + shortCode));
             markL2Healthy();
             return view;
         } catch (RuntimeException e) {
@@ -195,7 +204,7 @@ public class LayeredUrlCache {
 
     private void writeL2(String shortCode, UrlView view) {
         try {
-            l2.opsForValue().set(CacheChannels.KEY_PREFIX + shortCode, view, l2Ttl);
+            l2Breaker.executeRunnable(() -> l2.opsForValue().set(CacheChannels.KEY_PREFIX + shortCode, view, l2Ttl));
             markL2Healthy();
         } catch (RuntimeException e) {
             markL2Broken(e);
@@ -208,7 +217,7 @@ public class LayeredUrlCache {
             return false;
         }
         try {
-            return Boolean.TRUE.equals(strings.hasKey(CacheChannels.MISS_PREFIX + shortCode));
+            return Boolean.TRUE.equals(l2Breaker.executeSupplier(() -> strings.hasKey(CacheChannels.MISS_PREFIX + shortCode)));
         } catch (RuntimeException e) {
             markL2Broken(e);
             return false;
@@ -220,7 +229,7 @@ public class LayeredUrlCache {
             return;
         }
         try {
-            strings.opsForValue().set(CacheChannels.MISS_PREFIX + shortCode, "1", missTtl);
+            l2Breaker.executeRunnable(() -> strings.opsForValue().set(CacheChannels.MISS_PREFIX + shortCode, "1", missTtl));
         } catch (RuntimeException e) {
             markL2Broken(e);
         }
@@ -246,7 +255,7 @@ public class LayeredUrlCache {
      */
     private boolean isTombstoned(String shortCode) {
         try {
-            return Boolean.TRUE.equals(strings.hasKey(CacheChannels.TOMBSTONE_PREFIX + shortCode));
+            return Boolean.TRUE.equals(l2Breaker.executeSupplier(() -> strings.hasKey(CacheChannels.TOMBSTONE_PREFIX + shortCode)));
         } catch (RuntimeException e) {
             return false;
         }
@@ -294,6 +303,16 @@ public class LayeredUrlCache {
         generation.incrementAndGet();
         l1.invalidate(shortCode);
         invReceivedSingle.increment();
+    }
+
+    /**
+     * 무효화 구독이 다시 붙었을 때. 끊긴 동안 어떤 키가 지워졌는지 알 수 없으니 L1을 통째로 비운다.
+     * 음성대조군 토글과 무관하게 비운다. 토글은 "메시지를 놓친 인스턴스"를 흉내 내는 것이고 이건 복구 경로다.
+     */
+    void evictLocalOnResubscribe() {
+        generation.incrementAndGet();
+        l1.invalidateAll();
+        invResubscribed.increment();
     }
 
     void evictLocalAll() {

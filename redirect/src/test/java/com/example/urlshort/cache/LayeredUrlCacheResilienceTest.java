@@ -5,9 +5,12 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -49,7 +52,7 @@ class LayeredUrlCacheResilienceTest {
         RedisTemplate<String, UrlView> l2 = Mockito.mock(RedisTemplate.class);
         Mockito.when(l2.opsForValue()).thenReturn(ops);
         return new LayeredUrlCache(l1, l2, strings, new SingleFlight(),
-                new HotKeySet(Duration.ofMinutes(2), registry), Duration.ofHours(1), missTtl, true, registry);
+                new HotKeySet(Duration.ofMinutes(2), registry), CircuitBreaker.ofDefaults("l2"), Duration.ofHours(1), missTtl, true, registry);
     }
 
     @Test
@@ -66,6 +69,30 @@ class LayeredUrlCacheResilienceTest {
 
         assertThat(result).contains(view);
         assertThat(registry.get("urlcache.l2.errors").counter().count()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Redis가 계속 실패하면 차단기가 열려 더는 Redis를 부르지 않는다")
+    @SuppressWarnings("unchecked")
+    void stops_calling_redis_once_the_breaker_opens() {
+        // 타임아웃만 있으면 장애 내내 L1 미스마다 타임아웃만큼 기다린다.
+        Mockito.when(ops.get(Mockito.anyString())).thenThrow(new QueryTimeoutException("redis slow"));
+        Mockito.doThrow(new QueryTimeoutException("redis slow"))
+                .when(ops).set(Mockito.anyString(), Mockito.any(), Mockito.any(Duration.class));
+        RedisTemplate<String, UrlView> l2 = Mockito.mock(RedisTemplate.class);
+        Mockito.when(l2.opsForValue()).thenReturn(ops);
+        CircuitBreaker breaker = CircuitBreaker.of("l2",
+                CircuitBreakerConfig.custom().slidingWindowSize(4).minimumNumberOfCalls(4).build());
+        LayeredUrlCache cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(),
+                new HotKeySet(Duration.ofMinutes(2), registry), breaker,
+                Duration.ofHours(1), Duration.ZERO, true, registry);
+
+        for (int i = 0; i < 10; i++) {
+            assertThat(cache.get("k" + i, () -> Optional.of(view))).contains(view);
+        }
+
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        Mockito.verify(ops, Mockito.atMost(4)).get(Mockito.anyString());
     }
 
     @Test

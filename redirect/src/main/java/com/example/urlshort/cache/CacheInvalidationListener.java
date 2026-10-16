@@ -3,6 +3,7 @@ package com.example.urlshort.cache;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
+import org.springframework.data.redis.connection.SubscriptionListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -12,9 +13,12 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>메시지 본문이 {@link #INVALIDATE_ALL}이면 전체 무효화, 그 외에는 해당 shortCode만 무효화한다.
  * 발행 인스턴스 자신도 메시지를 수신하지만 evict는 멱등이므로 안전하다.
+ *
+ * <p>Pub/Sub는 끊긴 동안의 메시지를 다시 주지 않는다. 그래서 구독이 (다시) 붙을 때마다 L1을 비운다.
+ * 기동 직후 첫 구독에서도 불리지만 그때 L1은 비어 있다.
  */
 @Component
-public class CacheInvalidationListener implements MessageListener {
+public class CacheInvalidationListener implements MessageListener, SubscriptionListener {
 
     private final LayeredUrlCache cache;
 
@@ -31,5 +35,10 @@ public class CacheInvalidationListener implements MessageListener {
         } else {
             cache.evictLocal(body);
         }
+    }
+
+    @Override
+    public void onChannelSubscribed(byte[] channel, long count) {
+        cache.evictLocalOnResubscribe();
     }
 }

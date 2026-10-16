@@ -174,8 +174,8 @@ services:
       APP_CACHE_LOCAL_MAX_SIZE: ${APP_CACHE_LOCAL_MAX_SIZE:-1200000}
       APP_CACHE_HEAP_BUDGET_BYTES: ${APP_CACHE_HEAP_BUDGET_BYTES:-107374182}
       APP_CACHE_REPORT_INTERVAL_MS: ${APP_CACHE_REPORT_INTERVAL_MS:-30000}
-      # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
-      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
+      # 운영 기본값(5m)을 그대로 쓴다. 100만 건 적재 실험은 docker-compose.experiment.yml 로 2h 를 얹는다.
+      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-5m}
       # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
       JAVA_OPTS: >-
         -Dcom.sun.management.jmxremote
@@ -227,8 +227,8 @@ services:
       # 재현할 때는 APP_CACHE_HEAP_BUDGET_BYTES 도 함께 올려야 한다. 기본값(102MB)이면 18만 건에서 잘린다.
       APP_CACHE_LOCAL_MAX_SIZE: ${APP_CACHE_LOCAL_MAX_SIZE:-1200000}
       APP_CACHE_HEAP_BUDGET_BYTES: ${APP_CACHE_HEAP_BUDGET_BYTES:-107374182}
-      # 기본 5분으로는 100만 건이 쌓이기 전에 만료된다. 적재 실험이 가능하도록 늘린다.
-      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-2h}
+      # 운영 기본값(5m)을 그대로 쓴다. 100만 건 적재 실험은 docker-compose.experiment.yml 로 2h 를 얹는다.
+      APP_CACHE_LOCAL_TTL: ${APP_CACHE_LOCAL_TTL:-5m}
       # VisualVM/JConsole 접속용 JMX. RMI 콜백 주소를 호스트 기준으로 고정해야 포트 매핑을 통과한다.
       JAVA_OPTS: >-
         -Dcom.sun.management.jmxremote

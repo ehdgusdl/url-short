@@ -5,6 +5,9 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      # 지정하지 않으면 Lettuce 기본 60초다. Redis가 응답하지 않으면 요청 스레드가 그만큼 묶인다.
+      # 로컬 Redis 왕복은 1ms 미만이라 100ms면 정상 경로를 건드리지 않는다.
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:100ms}
   jpa:
     hibernate:
       ddl-auto: none
@@ -52,6 +55,12 @@ app:
     # 없는 코드를 짧게 기억한다. 없는 코드는 핫키가 아니라 L1을 건너뛰고 L2에도 없어서
     # 매 요청이 그대로 Replica로 내려간다. 0으로 두면 음성 캐시를 끈다.
     miss-ttl: ${APP_CACHE_MISS_TTL:30s}
+  db:
+    bulkhead:
+      # DB 로더 동시 실행 상한. Replica 풀(Hikari 기본 10)과 맞춘다.
+      max-concurrent: ${APP_DB_BULKHEAD_MAX_CONCURRENT:10}
+      # 자리가 없을 때 기다리는 시간. 넘으면 503.
+      wait: ${APP_DB_BULKHEAD_WAIT:50ms}
   kafka:
     click-topic: ${APP_KAFKA_CLICK_TOPIC:events}
     click-partitions: ${APP_KAFKA_CLICK_PARTITIONS:3}

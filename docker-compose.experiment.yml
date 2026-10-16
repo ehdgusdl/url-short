@@ -1,0 +1,23 @@
+# L1 전량 적재(A안) 실험용 오버라이드.
+#
+# 기본 스택은 운영값(L1 TTL 5m)으로 뜬다. 하지만 100만 건을 L1에 쌓는 A/B 대조군
+# (k6/hotkey-admission.js MODE=all)은 적재가 끝나기 전에 5분이 지나 엔트리가 만료된다.
+# 그 측정 동안만 TTL을 2시간으로 늘린다.
+#
+# 사용법:
+#   docker compose -f docker-compose.yml -f docker-compose.experiment.yml up -d
+#   k6 run -e MODE=all k6/hotkey-admission.js
+# 끝나면 오버라이드 없이 다시 올려 운영값으로 되돌린다:
+#   docker compose up -d
+#
+# 주의: 건수 상한(APP_CACHE_LOCAL_MAX_SIZE=1200000)은 기본 compose에 그대로 있지만,
+# 실제 상한은 힙 예산(102MB / 576B = 약 18.6만 건)이 잡는다. 100만 건을 실제로 담으려면
+# APP_CACHE_HEAP_BUDGET_BYTES 도 함께 올려야 한다(힙도 그만큼 필요하다).
+services:
+  redirect-1:
+    environment:
+      APP_CACHE_LOCAL_TTL: 2h
+
+  redirect-2:
+    environment:
+      APP_CACHE_LOCAL_TTL: 2h

@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,7 +45,7 @@ class LayeredUrlCacheAdmissionTest {
         StringRedisTemplate strings = Mockito.mock(StringRedisTemplate.class);
         Mockito.when(strings.hasKey(Mockito.anyString())).thenReturn(false); // 묘비 없음
 
-        cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(), hotKeys,
+        cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(), hotKeys, CircuitBreaker.ofDefaults("l2"),
                 Duration.ofHours(1), Duration.ZERO, true, registry);
     }
 

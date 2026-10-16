@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -49,7 +50,7 @@ class LayeredUrlCacheTombstoneTest {
 
         strings = Mockito.mock(StringRedisTemplate.class);
         cache = new LayeredUrlCache(l1, l2, strings, new SingleFlight(),
-                new HotKeySet(Duration.ofMinutes(2), registry), Duration.ofHours(1), Duration.ZERO, true, registry);
+                new HotKeySet(Duration.ofMinutes(2), registry), CircuitBreaker.ofDefaults("l2"), Duration.ofHours(1), Duration.ZERO, true, registry);
     }
 
     @Test
