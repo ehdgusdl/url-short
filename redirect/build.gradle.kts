@@ -16,5 +16,7 @@ dependencies {
 dependencies {
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("org.springframework.kafka:spring-kafka")
+    // Redis 장애 시 L2 호출을 끊는 차단기. Bulkhead는 java.util.concurrent.Semaphore로 충분해 코어만 쓴다.
+    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.2.0")
     testImplementation("org.springframework.kafka:spring-kafka-test")
 }

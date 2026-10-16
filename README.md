@@ -132,6 +132,9 @@ curl http://localhost/api/stats/hotkeys   # 마지막 핫키 발행 상태
 | `APP_CACHE_LOCAL_MAX_SIZE` | `10000` | L1 최대 엔트리 |
 | `APP_CACHE_LOCAL_TTL` / `APP_CACHE_L2_TTL` | `5m` / `1h` | L1/L2 TTL |
 | `APP_CACHE_L1_ENABLED` | `true` | L1 사용 여부(런타임 토글 `/actuator/l1cache`) |
+| `SPRING_DATA_REDIS_TIMEOUT` | `100ms` | Redis 커맨드 타임아웃. 지정하지 않으면 Lettuce 기본 60초라 Redis 무응답 시 요청 스레드가 묶인다 |
+| `APP_DB_BULKHEAD_MAX_CONCURRENT` | `10` | DB 로더 동시 실행 상한(Replica 풀 크기와 맞춤) |
+| `APP_DB_BULKHEAD_WAIT` | `50ms` | 상한에 찼을 때 기다리는 시간. 넘으면 503 |
 
 ### dashboard
 
